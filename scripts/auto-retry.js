@@ -442,7 +442,7 @@
     el = null;
   }
 
-  window.__sqAutoContinue = {
+  window.__sqAutoRetry = {
     dispose: unmount,
     tick,
     render,

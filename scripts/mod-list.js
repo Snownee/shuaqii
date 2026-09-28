@@ -33,6 +33,7 @@
   let dialog = null;
   let rowsHost = null;
   let unsubscribeChange = null;
+  let showRequired = false; // locked (always-on) scripts are hidden until this is checked
 
   function ensureStyle() {
     let style = document.getElementById(STYLE_ID);
@@ -130,6 +131,17 @@
       }
       #sq-modlist-panel .ml-row.ml-off .ml-info { opacity: 0.5; }
       #sq-modlist-panel .ml-locked { cursor: not-allowed; }
+      #sq-modlist-panel .ml-filter {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 0 8px;
+        color: #9ca3af;
+        font-size: 12px;
+        cursor: pointer;
+        user-select: none;
+      }
+      #sq-modlist-panel .ml-filter input { margin: 0; cursor: pointer; }
       #sq-modlist-panel .ml-actions { display: flex; gap: 6px; }
       #sq-modlist-panel .ml-action {
         background: rgba(255, 255, 255, 0.08);
@@ -233,7 +245,8 @@
 
   function renderRows() {
     if (!rowsHost) return;
-    rowsHost.replaceChildren(...reg.list().map(makeRow));
+    const entries = reg.list().filter((entry) => showRequired || !entry.locked);
+    rowsHost.replaceChildren(...entries.map(makeRow));
   }
 
   function open() {
@@ -265,6 +278,21 @@
     });
     head.append(title, closeBtn);
     panel.appendChild(head);
+
+    const filter = document.createElement("label");
+    filter.className = "ml-filter";
+    filter.title = "also list the always-on (required) scripts";
+    const filterBox = document.createElement("input");
+    filterBox.type = "checkbox";
+    filterBox.checked = showRequired;
+    filterBox.addEventListener("change", () => {
+      showRequired = filterBox.checked;
+      renderRows();
+    });
+    const filterText = document.createElement("span");
+    filterText.textContent = "Show required scripts";
+    filter.append(filterBox, filterText);
+    panel.appendChild(filter);
 
     rowsHost = document.createElement("div");
     panel.appendChild(rowsHost);
