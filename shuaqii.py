@@ -64,7 +64,8 @@ _RUN_ID = os.urandom(4).hex()
 def bootstrap_expression(pass_id):
     return (
         "window.__shuaqii = Object.assign(window.__shuaqii || {}, "
-        f"{{ version: {json.dumps(__version__)}, injected: true, pass: {json.dumps(pass_id)} }});"
+        f"{{ version: {json.dumps(__version__)}, projectDir: {json.dumps(PROJECT_DIR)}, "
+        f"injected: true, pass: {json.dumps(pass_id)} }});"
     )
 
 
@@ -83,7 +84,7 @@ def sweep_expression(pass_id):
 def main_bootstrap_expression(pass_id):
     return (
         "globalThis.__shuaqii = Object.assign(globalThis.__shuaqii || {}, "
-        f"{{ pass: {json.dumps(pass_id)} }});"
+        f"{{ projectDir: {json.dumps(PROJECT_DIR)}, pass: {json.dumps(pass_id)} }});"
     )
 
 
@@ -124,6 +125,11 @@ DEFAULT_OPENCODE_PATHS = [
 
 # Where scripts are auto-loaded from when neither -s nor -e is given.
 SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
+
+# The directory this injector (and scripts/) lives in. Passed to the renderer as
+# window.__shuaqii.projectDir so scripts can resolve repo-relative paths (e.g.
+# theme-diy/bg) without hard-coding an absolute path.
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Comment marker that opts a script into being injected into the app's Electron main
 # process as well as the renderer (a plain Node context, no ``window``), through the Node

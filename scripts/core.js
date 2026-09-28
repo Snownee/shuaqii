@@ -168,6 +168,7 @@
   // or run their own timer:
   //
   //   await __sq.ready          -> server/auth/windowID resolved
+  //   __sq.projectDir           -> this repo's directory (from shuaqii.py), or null
   //   __sq.activeSessionId()    -> current session id (short-cached)
   //   __sq.currentSessionId()   -> current session id (never cached)
   //   __sq.messages(id, maxAge) -> message list for a session (short-cached, deduped)
@@ -295,6 +296,11 @@
     stopLocalTimer();
     startLocalTimer();
   }
+
+  // The project directory this repo lives in, injected by shuaqii.py as
+  // window.__shuaqii.projectDir. Set outside the version guard so a re-injection
+  // refreshes it on an already-running __sq.
+  sq.projectDir = (window.__shuaqii && window.__shuaqii.projectDir) || null;
 
   // Shared session-message loader: one HTTP request per session serves every script.
   // A short TTL (per-caller `maxAge`, default 1s) absorbs polling overlap, and an

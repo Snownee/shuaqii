@@ -1,5 +1,7 @@
-// Paints a random image from theme-diy/bg/ as the background of the app's <main>
-// element, crossfading to a different random image whenever the active session changes.
+// Paints an image from theme-diy/bg/ as the background of the app's <main> element. On a
+// session switch the image changes: each page (session) remembers the picture it first
+// rolled (see "page memory" below), so a page keeps the same background across reloads,
+// while a brand-new page gets a fresh random one.
 // Requires scripts/core.js to be injected first (window.__sq shared services and
 // the window.__sqScripts registry it registers itself with).
 //
@@ -8,16 +10,26 @@
 // The renderer (oc://renderer/index.html) cannot read project files from disk itself,
 // so the folder is listed through the bundled server's GET /file endpoint and each
 // image is loaded as base64 through GET /file/content (the same endpoints the app uses
-// to browse and preview files). Paths are resolved against the active session's project
-// directory, so "theme-diy/bg" means <project>/theme-diy/bg. Any file is a candidate;
+// to browse and preview files). The pool is read from a fixed directory
+// (settings.dir, defaulting to the repo directory shuaqii.py injects as
+// window.__shuaqii.projectDir), so every session draws from the same theme-diy/bg
+// regardless of the active project. Any file is a candidate;
 // loadImage keeps only those the server reports with an image/* mimeType, so arbitrary
 // image formats work. The current and incoming images ride on main::before / main::after
 // (each opacity-transitioned), and the whole rule set lives in a <style> tag so it
 // survives the app re-rendering <main>.
 //
+// Page memory: once a page's background is set it is written to
+// localStorage["shuaqii.theme-diy"].pages as { "<sessionId>": { asset, at } } (asset is a
+// BG_DIR-relative path, at the LRU stamp). Revisiting that page reuses the remembered
+// image (marked "reuse" in the overlay); a path that no longer loads is dropped and
+// replaced by a new random pick. The map is LRU-capped at MAX_PAGES (50).
+//
 // Its row in the mod list carries a "Settings" button opening a small dialog where the
-// background colour opacity (the dark scrim over the image) and extra CSS rules can
-// be edited; both are applied live and persisted to localStorage["shuaqii.theme-diy"].
+// background directory, background colour opacity (the dark scrim over the image) and
+// extra CSS rules can be edited; all are applied live and persisted to
+// localStorage["shuaqii.theme-diy"]. Reset restores those defaults and clears the page
+// memory too.
 
 (async () => {
   const sq = window.__sq;
@@ -35,8 +47,12 @@
   const DIALOG_ID = "sq-themediy-backdrop";
   const STORE_KEY = "shuaqii.theme-diy";
   const BG_DIR = "theme-diy/bg";
+  // The repo directory shuaqii.py reports (via core.js). Scripts live there, so
+  // theme-diy/bg resolves without hard-coding a machine-specific absolute path.
+  const DEFAULT_ROOT = sq.projectDir || "";
+  const MAX_PAGES = 50;
   const FADE_MS = 500;
-  const DEFAULTS = { alpha: 0.5, css: "" };
+  const DEFAULTS = { alpha: 0.5, css: "", dir: DEFAULT_ROOT, pages: {} };
 
   // Two stacked image layers (main::before / main::after) hold the current and next
   // background so a switch can crossfade instead of swapping the image in an instant.
@@ -58,20 +74,70 @@
   let unsubscribe = null;
 
   // ---- settings -------------------------------------------------------------
+  // `pages` remembers the background chosen for each page (session id) so a page
+  // keeps the same image across reloads instead of re-rolling every time. Each entry
+  // is { asset, at } where asset is a BG_DIR-relative path and at is the LRU stamp.
+  // Sanitize on read: drop malformed entries and cap at MAX_PAGES.
+  // Keep only the MAX_PAGES most recently used (larger `at` wins).
+  function prunePages(pages) {
+    const ids = Object.keys(pages);
+    if (ids.length <= MAX_PAGES) return pages;
+    ids
+      .sort((a, b) => (pages[b].at || 0) - (pages[a].at || 0))
+      .slice(MAX_PAGES)
+      .forEach((id) => delete pages[id]);
+    return pages;
+  }
+
+  function readPages(parsed) {
+    const pages = {};
+    const raw = parsed && parsed.pages;
+    if (raw && typeof raw === "object") {
+      for (const [id, entry] of Object.entries(raw)) {
+        if (!entry || typeof entry !== "object") continue;
+        if (typeof entry.asset !== "string" || !entry.asset) continue;
+        pages[id] = {
+          asset: entry.asset,
+          at: typeof entry.at === "number" ? entry.at : 0,
+        };
+      }
+    }
+    return prunePages(pages);
+  }
+
+  // Remember the asset shown for a page and refresh its LRU stamp (Q14: every reuse or
+  // write counts as a use). Prunes to MAX_PAGES, then persists via the debounced writer.
+  function rememberPage(id, asset) {
+    if (!id) return;
+    settingsCache.pages[id] = { asset, at: Date.now() };
+    prunePages(settingsCache.pages);
+    schedulePersist();
+  }
+
+  function forgetAllPages() {
+    settingsCache.pages = {};
+    schedulePersist();
+  }
+
   function readSettings() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
       const parsed = raw ? JSON.parse(raw) : null;
-      if (!parsed || typeof parsed !== "object") return { ...DEFAULTS };
+      if (!parsed || typeof parsed !== "object") return { ...DEFAULTS, pages: {} };
       return {
         alpha:
           typeof parsed.alpha === "number"
             ? Math.min(1, Math.max(0, parsed.alpha))
             : DEFAULTS.alpha,
         css: typeof parsed.css === "string" ? parsed.css : DEFAULTS.css,
+        dir:
+          typeof parsed.dir === "string" && parsed.dir.trim()
+            ? parsed.dir.trim()
+            : DEFAULTS.dir,
+        pages: readPages(parsed),
       };
     } catch {
-      return { ...DEFAULTS };
+      return { ...DEFAULTS, pages: {} };
     }
   }
 
@@ -79,7 +145,12 @@
     try {
       localStorage.setItem(
         STORE_KEY,
-        JSON.stringify({ alpha: settings.alpha, css: settings.css }),
+        JSON.stringify({
+          alpha: settings.alpha,
+          css: settings.css,
+          dir: settings.dir,
+          pages: settings.pages,
+        }),
       );
     } catch {
       /* ignore */
@@ -118,15 +189,10 @@
     }
   }
 
-  // The asset is relative to the active session's project; when no session is active
-  // yet, fall back to the server's own working directory.
-  async function resolveDirectory(id) {
-    if (id) {
-      const info = await fetchJson(`/session/${encodeURIComponent(id)}`);
-      if (info && info.directory) return info.directory;
-    }
-    const path = await fetchJson("/path");
-    return path && path.directory ? path.directory : null;
+  // The pool is read from a fixed directory (settings.dir), independent of the active
+  // session's project, so every session draws from the same theme-diy/bg folder.
+  function bgRoot() {
+    return settingsCache.dir || DEFAULT_ROOT;
   }
 
   // List theme-diy/bg via the server's directory endpoint. Every regular file is a
@@ -134,7 +200,8 @@
   // extension allowlist is needed and any image format is supported.
   let assetCache = { directory: null, assets: null };
 
-  async function listAssets(directory) {
+  async function listAssets() {
+    const directory = bgRoot();
     if (assetCache.directory === directory && assetCache.assets) return assetCache.assets;
     const query = `?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(BG_DIR)}`;
     const list = await fetchJson(`/file${query}`);
@@ -161,20 +228,35 @@
     return order;
   }
 
-  async function loadImage(directory) {
-    const assets = await listAssets(directory);
+  // Fetch one specific asset (BG_DIR-relative) and validate it. Throws on anything the
+  // server does not return as a binary image, so a stale remembered path self-heals.
+  async function fetchAsset(asset) {
+    const directory = bgRoot();
+    const query = `?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(asset)}`;
+    const file = await fetchJson(`/file/content${query}`);
+    if (!file || file.encoding !== "base64" || !file.content)
+      throw new Error("not a binary file");
+    const mime = file.mimeType || "image/jpeg";
+    if (!/^image\//i.test(mime)) throw new Error("not an image");
+    return { uri: `data:${mime};base64,${file.content}`, asset };
+  }
+
+  // Load one remembered asset by path.
+  function loadAsset(asset) {
+    return fetchAsset(asset);
+  }
+
+  // Resolves to { uri, asset } WITHOUT mutating state.asset: the pick must not count as
+  // "currently shown" until refresh actually commits it via setImage. Otherwise a load
+  // that gets discarded (session switched mid-load) would still move the exclusion mark,
+  // letting the next pick re-select the image already on screen and look like no switch.
+  async function loadImage() {
+    const assets = await listAssets();
     if (!assets.length) throw new Error(`no files in ${BG_DIR}`);
     let lastErr = null;
     for (const asset of orderAssets(assets)) {
       try {
-        const query = `?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(asset)}`;
-        const file = await fetchJson(`/file/content${query}`);
-        if (!file || file.encoding !== "base64" || !file.content)
-          throw new Error("not a binary file");
-        const mime = file.mimeType || "image/jpeg";
-        if (!/^image\//i.test(mime)) throw new Error("not an image");
-        state.asset = asset;
-        return `data:${mime};base64,${file.content}`;
+        return await fetchAsset(asset);
       } catch (e) {
         lastErr = e;
       }
@@ -288,10 +370,17 @@
 
   let loading = false;
 
+  // Debug signal: a toast on every detected page (session) switch. The first observation
+  // after mount never counts: state.sessionId starts null, so only a change from a known
+  // session fires. dedupe is off so back-to-back switches each stack their own notice.
+  function notifySwitch() {
+  }
+
   async function refresh() {
     if (!active || loading) return;
     const id = sq.currentSessionId();
     if (id && id !== state.sessionId) {
+      if (state.sessionId !== null) notifySwitch();
       state.sessionId = id;
       state.directory = null;
       state.dataUri = null;
@@ -300,23 +389,33 @@
 
     loading = true;
     try {
-      const directory = await resolveDirectory(id);
-      if (id !== sq.currentSessionId()) return;
-      if (!directory) {
-        state.status = "theme-diy \u00b7 no project directory";
-        state.error = true;
-        return;
-      }
-      state.directory = directory;
+      state.directory = bgRoot();
+      const remembered = settingsCache.pages[id] ? settingsCache.pages[id].asset : null;
       try {
-        const uri = await loadImage(directory);
+        // Prefer the image already remembered for this page; fall back to a fresh random
+        // pick (which excludes the one on screen). A remembered path that no longer loads
+        // throws and is replaced by that pick, self-healing the stale entry.
+        let picked = null;
+        if (remembered) {
+          try {
+            picked = await loadAsset(remembered);
+          } catch {
+            picked = null;
+          }
+        }
+        const reused = !!picked;
+        if (!picked) picked = await loadImage();
         if (id !== sq.currentSessionId()) return;
-        await preload(uri);
+        await preload(picked.uri);
         if (id !== sq.currentSessionId()) return;
-        state.dataUri = uri;
-        setImage(uri);
+        setImage(picked.uri);
+        state.dataUri = picked.uri;
+        state.asset = picked.asset;
+        rememberPage(id, picked.asset);
         apply();
-        state.status = `theme-diy \u00b7 main \u2190 ${state.asset}`;
+        state.status = reused
+          ? `theme-diy \u00b7 reuse \u2192 ${state.asset}`
+          : `theme-diy \u00b7 main \u2190 ${state.asset}`;
         state.error = false;
       } catch (e) {
         state.dataUri = null;
@@ -396,7 +495,8 @@
         width: 34px;
         text-align: right;
       }
-      #${DIALOG_ID} textarea {
+      #${DIALOG_ID} textarea,
+      #${DIALOG_ID} input[type="text"] {
         width: 100%;
         box-sizing: border-box;
         resize: vertical;
@@ -481,6 +581,30 @@
     head.append(title, closeBtn);
     panel.appendChild(head);
 
+    // directory that holds theme-diy/bg, fixed so every session draws from the same pool
+    const dirRow = document.createElement("div");
+    dirRow.className = "td-row";
+    const dirLabel = document.createElement("label");
+    dirLabel.className = "td-label";
+    dirLabel.textContent = "Background directory (theme-diy/bg lives here)";
+    const dir = document.createElement("input");
+    dir.type = "text";
+    dir.spellcheck = false;
+    dir.placeholder = DEFAULT_ROOT;
+    dir.value = settingsCache.dir;
+    // reload on commit (blur / Enter) rather than per keystroke
+    dir.addEventListener("change", () => {
+      settingsCache.dir = dir.value.trim() || DEFAULT_ROOT;
+      dir.value = settingsCache.dir;
+      assetCache = { directory: null, assets: null };
+      state.dataUri = null;
+      state.directory = null;
+      schedulePersist();
+      refresh();
+    });
+    dirRow.append(dirLabel, dir);
+    panel.appendChild(dirRow);
+
     // opacity of the dark scrim over the background image
     const alphaRow = document.createElement("div");
     alphaRow.className = "td-row";
@@ -531,12 +655,18 @@
     actions.className = "td-actions";
     const reset = button("Reset", "td-btn");
     reset.addEventListener("click", () => {
-      settingsCache = { ...DEFAULTS };
+      // One-click factory reset: alpha, css, dir AND all remembered pages (Q15).
+      settingsCache = { ...DEFAULTS, pages: {} };
       writeSettings(settingsCache);
+      dir.value = DEFAULTS.dir;
       alpha.value = String(DEFAULTS.alpha);
       alphaVal.textContent = DEFAULTS.alpha.toFixed(2);
       css.value = DEFAULTS.css;
+      assetCache = { directory: null, assets: null };
+      state.dataUri = null;
+      state.directory = null;
       apply();
+      refresh();
     });
     const done = button("Close", "td-btn");
     done.addEventListener("click", closeSettings);
@@ -593,12 +723,19 @@
     state,
     BG_DIR,
     settings: () => ({ ...settingsCache }),
+    pages: () => ({ ...settingsCache.pages }),
+    clearPages: () => {
+      forgetAllPages();
+      state.dataUri = null;
+      state.directory = null;
+      refresh();
+    },
     openSettings,
     closeSettings,
   };
   reg.register(ID, {
     label: "Theme DIY",
-    version: "0.0.1",
+    version: "0.0.2",
     desc: "Random background image, custom css.",
     enabled: false,
     actions: [
