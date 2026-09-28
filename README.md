@@ -71,6 +71,7 @@ These live in `scripts/` and are managed from the overlay's script list:
 | **Info HUD**       | Grid of session facts: id, agent/model, tokens, cost, changed files, and more.            | Off                |
 | **Message Jump**   | Up/down buttons to jump between the messages you sent.                                    | Off                |
 | **Theme DIY**      | Random `theme-diy/bg/` background per session, with opacity + extra CSS.                  | Off                |
+| **Keep Awake**     | Holds an Electron power blocker while a session runs, so the machine won't sleep.         | On                 |
 
 ![](demo-pics/1.png)
 ![](demo-pics/2.png)
@@ -121,12 +122,53 @@ For the full API — overlay, registry, renderer services, message/error shapes,
 live-app verification workflow — see
 [`.opencode/skills/inject-script/SKILL.md`](.opencode/skills/inject-script/SKILL.md).
 
+### Main-process scripts
+
+A few things only exist in Electron's main process, not the renderer — `powerSaveBlocker`
+(used by **Keep Awake**) is why a script can opt into it. Put the marker
+
+```js
+// @shuaqii:main
+```
+
+anywhere in a `scripts/*.js` file and shuaqii injects **the same file** into both places,
+through the Node inspector it opens with `--inspect=<port>`. The file branches on where it
+is running, so one file can hold both halves:
+
+```js
+(function () {
+  if (typeof window === "undefined") runMain();     // main process: plain Node context
+  else runRenderer();                               // renderer: window.__sq, overlay, registry
+})();
+```
+
+Main scripts run in a plain Node context: there is no `window` (use `globalThis`), no
+overlay, and no registry, but `require("electron")` is available. To hand data back to the
+renderer, call `webContents.executeJavaScript`; **Keep Awake** publishes its state as
+`window.__shuaqiiMain["keep-awake"]` for its own renderer half to display.
+
+A bare `python shuaqii.py` (and `--launch`) passes `--inspect=9229` when it launches the
+app, but OpenCode Desktop already opens a main-process inspector on `9229`, so attaching
+to a running app works too. If the inspect port is unreachable shuaqii warns once and runs
+the renderer half only. Use `--inspect-port N` for a different port, or
+`--main <file>` to send one file to the main process without editing it.
+
+There is no `ipcRenderer` in the page (OpenCode Desktop runs a context-isolated renderer),
+so renderer↔main messaging uses other channels. **Keep Awake** demonstrates both
+directions: the main half hosts a tiny CORS-open localhost HTTP server on an ephemeral
+port (published to the page together with a per-run token) that the renderer half POSTs its
+enabled state to — including a `sendBeacon` on disable, so turning the mod off releases the
+blocker immediately — and pushes status back the other way with
+`webContents.executeJavaScript`.
+
 ## `shuaqii.py` CLI reference
 
 | Flag                | Description                                                                 |
 | ------------------- | --------------------------------------------------------------------------- |
 | `-s, --script FILE` | JS file to inject (repeatable; order preserved).                            |
 | `-e, --eval CODE`   | Inline JS to inject (repeatable).                                           |
+| `--main FILE`       | JS file to inject into the Electron main process (repeatable; needs `--inspect`). |
+| `--inspect-port N`  | Main-process Node inspect port (default `9229`).                            |
 | `-i, --interactive` | Read JS from stdin and run it in every window.                              |
 | `--live`            | Watch `-s` files and re-inject on save (hot reload).                        |
 | `-w, --watch`       | Keep running and inject into new windows.                                   |
@@ -185,6 +227,7 @@ scripts/                       bundled scripts, auto-loaded
   message-jump.js
   info-hud.js
   theme-diy.js
+  keep-awake.js                also opts into the main process (see the marker below)
 examples/
   sample-patch.js              minimal injection example
 theme-diy/bg/                  background images used by Theme DIY

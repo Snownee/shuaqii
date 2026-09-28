@@ -192,6 +192,55 @@ const windowID = await window.api.getWindowID(); // ⚠ returns a Promise — aw
 All requests need the `Authorization` header; the sidecar uses HTTP Basic with a random
 password regenerated every launch.
 
+## Main-process scripts
+
+Renderer scripts can't reach Electron's main-process APIs (no `ipcRenderer`/`require` in
+the page, and the app's permission allow-list blocks things like `wakeLock`). To run code
+in the main process, put the marker
+
+```js
+// @shuaqii:main
+```
+
+in a `scripts/*.js` file. shuaqii then sends **the same file** to the main process as well
+as the renderer, through the **Node inspector** on `--inspect-port` (default `9229`); the
+file branches on where it is, so one file holds both halves:
+
+```js
+(function () {
+  if (typeof window === "undefined") runMain();  // plain Node: globalThis, no overlay
+  else runRenderer();                            // window.__sq, overlay, registry
+})();
+```
+
+Scripts that are main-only can be injected explicitly with `--main <file>` instead.
+
+- The main process is a plain Node context: **no `window`** (use `globalThis`), no overlay,
+  no registry, no `__sq`. `require("electron")` works (shuaqii evaluates with
+  `includeCommandLineAPI`, so `require` is in scope; `process.mainModule.require` is a
+  fallback).
+- The inspector target shows up on the inspect port as `type: "node"`; shuaqii connects to
+  it separately from the renderer targets and warns once (without dying) when the port is
+  closed. OpenCode Desktop already opens `9229`, so attaching to a running app works.
+- To drive renderer state from main, get a window with
+  `webContents.getAllWebContents()` and call `wc.executeJavaScript(expr, true)`; it runs in
+  the page's main world (it can see `window.__sq`) and **awaits returned promises**.
+  `scripts/keep-awake.js` polls `window.__sq.isSessionBusy(...)` this way and mirrors its
+  own status into `window.__shuaqiiMain["<id>"]` — its renderer half reads that back.
+- Main halves must be idempotent: keep a handle on `globalThis.__shuaqiiMain[id]` and
+  `dispose()` the previous instance at the top, since re-injection/`--live` re-runs the
+  file. Republish renderer-visible state every tick, not just on change, so a renderer that
+  reloaded recovers it.
+- There is **no `ipcRenderer`** to reach for: OpenCode Desktop's renderer is
+  context-isolated, and its preload world has no global `require`/`process` either. For
+  renderer→main, host a small CORS-open localhost HTTP server in the main half and have the
+  renderer `fetch`/`sendBeacon` it (publish the ephemeral port + a per-run token to the page
+  via `window.__shuaqiiMain`). `scripts/keep-awake.js` does exactly this for its
+  enable/disable signal; main→renderer stays `executeJavaScript`.
+- Renderer timers are throttled while the window is hidden, so don't rely on the renderer to
+  report a *timely* busy signal — keep the fast poll in the (unthrottled) main process and
+  use the bridge for event-style state that changes on user action.
+
 ## Verifying against the live app
 
 ```powershell

@@ -89,6 +89,15 @@ DEFAULT_OPENCODE_PATHS = [
 # Where scripts are auto-loaded from when neither -s nor -e is given.
 SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
 
+# Comment marker that opts a script into being injected into the app's Electron main
+# process as well as the renderer (a plain Node context, no ``window``), through the Node
+# inspector opened by ``--inspect=<port>``. One file can then carry both halves and pick
+# its branch based on whether ``window`` exists. See scripts/keep-awake.js.
+MAIN_MARKER = "@shuaqii:main"
+
+# Node inspector port used to reach the app's main process.
+DEFAULT_INSPECT_PORT = 9229
+
 
 def log(*args):
     print("[inject]", *args, flush=True)
@@ -268,17 +277,19 @@ class CDP:
                 raise WSError(msg["error"].get("message", "cdp error"))
             return msg.get("result", {})
 
-    def evaluate(self, expression, return_by_value=False):
-        return self.send(
-            "Runtime.evaluate",
-            {
-                "expression": expression,
-                "awaitPromise": True,
-                "returnByValue": return_by_value,
-                "userGesture": True,
-                "allowUnsafeEvalBlockedByCSP": True,
-            },
-        )
+    def evaluate(self, expression, return_by_value=False, command_line_api=False):
+        params = {
+            "expression": expression,
+            "awaitPromise": True,
+            "returnByValue": return_by_value,
+            "userGesture": True,
+            "allowUnsafeEvalBlockedByCSP": True,
+        }
+        # Node's inspector only defines ``require`` in the console-like scope when the
+        # command line API is enabled; main-process scripts rely on it to load electron.
+        if command_line_api:
+            params["includeCommandLineAPI"] = True
+        return self.send("Runtime.evaluate", params)
 
 
 # --------------------------------------------------------------------------- #
@@ -342,6 +353,15 @@ def dir_signature(directory):
     return sig
 
 
+def file_has_main_marker(path):
+    """True when *path* opts into main-process injection (see MAIN_MARKER)."""
+    try:
+        with open(os.path.abspath(path), "r", encoding="utf-8") as fh:
+            return MAIN_MARKER in fh.read()
+    except OSError:
+        return False
+
+
 # --------------------------------------------------------------------------- #
 # target helpers + persistent sessions
 # --------------------------------------------------------------------------- #
@@ -383,8 +403,10 @@ class Session:
         except WSError:
             pass
 
-    def evaluate(self, code, return_by_value=False):
-        return self.cdp.evaluate(code, return_by_value=return_by_value)
+    def evaluate(self, code, return_by_value=False, command_line_api=False):
+        return self.cdp.evaluate(
+            code, return_by_value=return_by_value, command_line_api=command_line_api
+        )
 
     def close(self):
         self.ws.close()
@@ -435,6 +457,66 @@ def is_alive(session):
     if result.get("exceptionDetails"):
         return False
     return result.get("result", {}).get("value") is True
+
+
+class MainInjector:
+    """Injects scripts into an Electron app's main process over its Node inspect port.
+
+    The main process is a plain Node context (no ``window`` and no overlay/registry),
+    reached through the inspector that ``--inspect=<port>`` opens; its target appears in
+    the debug-target list as ``type: "node"``. Scripts are evaluated directly. A missing
+    inspect port is a soft failure: we warn once and keep going, so a renderer-only setup
+    still works.
+    """
+
+    def __init__(self, host, port, scripts):
+        self.host = host
+        self.port = port
+        self.scripts = scripts
+        self.session = None
+        self.warned = False
+
+    def _connect(self):
+        targets = get_targets(self.host, self.port, timeout=1.0)
+        for t in targets:
+            if t.get("type") == "node" and t.get("webSocketDebuggerUrl"):
+                return Session(t)
+        raise ConnectionError("no node target on the inspect port")
+
+    def ensure(self):
+        """Connect if needed and inject the scripts. True once the inspector is reached."""
+        if self.session is not None:
+            return True
+        try:
+            self.session = self._connect()
+        except (ConnectionError, WSError, OSError) as exc:
+            if not self.warned:
+                warn(
+                    f"main-process inspect port {self.host}:{self.port} unreachable ({exc}); "
+                    f"launch the app with --inspect={self.port} to run main scripts"
+                )
+                self.warned = True
+            return False
+        self.warned = False
+        self.inject_all()
+        return self.session is not None
+
+    def inject_all(self):
+        for script in list(self.scripts):
+            self._eval(script)
+
+    def _eval(self, script):
+        try:
+            result = self.session.evaluate(script.code, command_line_api=True)
+        except (WSError, OSError) as exc:
+            warn(f"main inject failed for {script.name}: {exc}")
+            self.session = None
+            return
+        details = result.get("exceptionDetails")
+        if details:
+            report_exception(script.name, "main process", details)
+        else:
+            log(f"injected {script.name} -> main process")
 
 
 def eval_interactively(session, code):
@@ -508,8 +590,10 @@ def wait_for_port(host, port, seconds):
     return False
 
 
-def launch_app(exe, port, app_args, user_data_dir=None):
+def launch_app(exe, port, app_args, user_data_dir=None, inspect_port=None):
     args = [exe, f"--remote-debugging-port={port}"]
+    if inspect_port:
+        args.append(f"--inspect={inspect_port}")
     if user_data_dir:
         os.makedirs(user_data_dir, exist_ok=True)
         args.append(f"--user-data-dir={user_data_dir}")
@@ -572,6 +656,17 @@ class _AppendOrdered(argparse.Action):
         specs.append((kind, values))
 
 
+class _AppendMain(argparse.Action):
+    """Collect --main values (main-process scripts) in command-line order."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        specs = getattr(namespace, "main_specs", None)
+        if specs is None:
+            specs = []
+            setattr(namespace, "main_specs", specs)
+        specs.append(values)
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="shuaqii.py",
@@ -590,6 +685,20 @@ def build_parser():
     p.add_argument("-H", "--host", default="127.0.0.1", help="debug host (default 127.0.0.1)")
     p.add_argument("-s", "--script", action=_AppendOrdered, metavar="FILE", help="JS file to inject (repeatable)")
     p.add_argument("-e", "--eval", action=_AppendOrdered, metavar="CODE", help="inline JS to inject (repeatable)")
+    p.add_argument(
+        "--main",
+        action=_AppendMain,
+        metavar="FILE",
+        help="JS file to inject into the Electron main process instead of the renderer "
+        "(repeatable; needs the app launched with --inspect=<port>)",
+    )
+    p.add_argument(
+        "--inspect-port",
+        type=int,
+        default=DEFAULT_INSPECT_PORT,
+        metavar="N",
+        help=f"main-process Node inspect port (default {DEFAULT_INSPECT_PORT})",
+    )
     p.add_argument("-u", "--url", default=None, metavar="REGEX", help="only inject targets whose URL matches")
     p.add_argument("-w", "--watch", action="store_true", help="keep running and inject into new windows")
     p.add_argument("-t", "--timeout", type=float, default=0.0, metavar="SEC", help="stop after N seconds")
@@ -617,7 +726,7 @@ def build_parser():
     )
     p.add_argument("--wait", type=float, default=0.0, metavar="SEC", help="seconds to wait for the debug port after --launch (default 25)")
     p.add_argument("app_args", nargs="*", help="extra args for the launched app (put them last)")
-    p.set_defaults(specs=[])
+    p.set_defaults(specs=[], main_specs=[])
     return p
 
 
@@ -633,24 +742,36 @@ def main(argv):
     restart = o.restart
     launch = o.launch
 
-    auto_dir = None
-    if not o.specs:
-        auto_dir = SCRIPTS_DIR
-        if ordered_scripts(auto_dir):
-            # Auto-load picks up scripts from the scripts dir and watches it. It only
-            # implies --launch/--restart for a truly bare `python shuaqii.py` (no CLI
-            # args at all), the "just make it work" case. When the user passed any flag
-            # (e.g. `shuaqii.py -i`), forcing a restart would kill a running app —
-            # including the host of the current session — so launch/restart stay opt-in.
-            log(f"no -s/-e given: will auto-load scripts from {auto_dir}")
-            live = True
-            if not argv:
-                restart = True
-                launch = "__auto__"
-        elif not interactive:
-            die(
-                f"no .js files in {auto_dir} (use -s <file> or -e <code>), or pass -i"
-            )
+    # Auto-load picks up scripts from the scripts dir and watches it. It only implies
+    # --launch/--restart for a truly bare `python shuaqii.py` (no CLI args at all), the
+    # "just make it work" case. When the user passed any flag (e.g. `shuaqii.py -i`),
+    # forcing a restart would kill a running app — including the host of the current
+    # session — so launch/restart stay opt-in.
+    auto_dir = SCRIPTS_DIR if (not o.specs and ordered_scripts(SCRIPTS_DIR)) else None
+    if auto_dir:
+        live = True
+        if not argv:
+            restart = True
+            launch = "__auto__"
+        log(f"will auto-load renderer scripts from {auto_dir}")
+
+    # Whether any script will also be sent to the main process (either explicitly via
+    # --main, or opted in with the "@shuaqii:main" marker). Needed before launch so we can
+    # pass --inspect when it is.
+    def scripts_opt_into_main():
+        if auto_dir is not None:
+            return any(file_has_main_marker(p) for p in ordered_scripts(auto_dir))
+        for kind, value in o.specs:
+            marked = MAIN_MARKER in value if kind == "eval" else file_has_main_marker(value)
+            if marked:
+                return True
+        return False
+
+    have_main = bool(o.main_specs) or scripts_opt_into_main()
+    if not o.specs and not auto_dir and not have_main and not interactive:
+        die(
+            f"no .js files in {SCRIPTS_DIR} (use -s <file> or -e <code>), or pass -i"
+        )
 
     watch = o.watch or o.timeout > 0 or live or interactive
 
@@ -677,7 +798,13 @@ def main(argv):
                 "terminal or use launch-debug.cmd instead."
             )
             stop_running(exe)
-        launch_app(exe, o.port, o.app_args, user_data_dir=user_data_dir)
+        launch_app(
+            exe,
+            o.port,
+            o.app_args,
+            user_data_dir=user_data_dir,
+            inspect_port=o.inspect_port if have_main else None,
+        )
 
         ready = o.wait if o.wait > 0 else (25.0 if not o.isolated else 25.0)
         log(f"waiting up to {ready:.0f}s for debug port {o.port} ...")
@@ -695,8 +822,22 @@ def main(argv):
     else:
         scripts = [Script(kind, value) for kind, value in o.specs]
 
+    # Main-process scripts are the renderer scripts that opted in with the marker, plus
+    # any explicit --main files (main-only).
+    main_explicit = [Script("file", path) for path in o.main_specs]
+
+    def build_main_scripts():
+        return [s for s in scripts if MAIN_MARKER in s.code] + main_explicit
+
+    main_scripts = build_main_scripts()
+
     for script in scripts:
         log(f"loaded script {script.name} ({len(script.code)} chars)")
+    for script in main_explicit:
+        log(f"loaded main script {script.name} ({len(script.code)} chars)")
+    also_main = [s for s in scripts if MAIN_MARKER in s.code]
+    if also_main:
+        log("also injected into the main process: " + ", ".join(s.name for s in also_main))
     if live:
         log("live reload enabled: save a -s file to re-inject it")
         if auto_dir is not None and scripts:
@@ -705,6 +846,8 @@ def main(argv):
     sessions: dict[str, Session] = {}
     seen_sigs = {i: s.signature() for i, s in enumerate(scripts)}
     dir_sig = dir_signature(auto_dir) if auto_dir is not None else {}
+    main_injector = MainInjector(o.host, o.inspect_port, main_scripts) if main_scripts else None
+    main_explicit_sigs = {i: s.signature() for i, s in enumerate(main_explicit)}
     injected_once = False
     poll_delay = 0.5
     ever_connected = False
@@ -751,6 +894,9 @@ def main(argv):
 
             if target_gone:
                 break
+
+            if main_injector is not None:
+                main_injector.ensure()
 
             for t in targets:
                 sid = t.get("id")
@@ -830,6 +976,26 @@ def main(argv):
                         except (WSError, OSError) as exc:
                             drop(sid, exc)
 
+                if main_injector is not None:
+                    # Marker scripts ride along with the renderer set (rebuilt above when
+                    # `changed`); explicit --main files are tracked here on their own.
+                    main_changed = changed
+                    for i, script in enumerate(main_explicit):
+                        if script.kind != "file":
+                            continue
+                        sig = script.signature()
+                        if sig is not None and sig != main_explicit_sigs.get(i):
+                            if script.reload():
+                                main_explicit_sigs[i] = sig
+                                main_changed = True
+                                log(f"reloaded main script {script.name}")
+                    if main_changed:
+                        main_injector.scripts = build_main_scripts()
+                        main_injector.warned = False
+                        activity = True
+                        if main_injector.session is not None:
+                            main_injector.inject_all()
+
             if interactive:
                 try:
                     while True:
@@ -850,7 +1016,8 @@ def main(argv):
                     pass
 
             if not watch:
-                if injected_once:
+                main_ready = main_injector is None or main_injector.session is not None
+                if injected_once and main_ready:
                     break
                 if time.time() > one_shot_deadline:
                     warn("no injectable targets found in time")
@@ -871,6 +1038,8 @@ def main(argv):
     finally:
         for session in sessions.values():
             session.close()
+        if main_injector is not None and main_injector.session is not None:
+            main_injector.session.close()
 
     log("done")
     return 0
