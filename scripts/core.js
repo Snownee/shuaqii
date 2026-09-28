@@ -515,12 +515,20 @@
   //   onChange(fn)           -> subscribe to registry changes; returns unsubscribe
   //   list()                 -> ordered snapshot for the UI
   //   unregister(id)
+  //   sweep(pass)            -> unregister entries not refreshed by inject pass `pass`
   // -------------------------------------------------------------------------
   const MOD_STORE_KEY = "shuaqii.mods";
   const registry =
     window.__sqScripts && window.__sqScripts.entries instanceof Map
       ? window.__sqScripts
       : { entries: new Map(), subscribers: new Set() };
+
+  // shuaqii.py stamps window.__shuaqii.pass with a fresh id before each injection
+  // pass; register() records it so sweep() can evict entries from earlier passes
+  // (i.e. script files that were deleted from scripts/).
+  function currentPass() {
+    return window.__shuaqii ? window.__shuaqii.pass : undefined;
+  }
 
   function readModState() {
     try {
@@ -606,6 +614,7 @@
         mount: typeof meta.mount === "function" ? meta.mount : null,
         unmount: typeof meta.unmount === "function" ? meta.unmount : null,
         mounted: false,
+        pass: currentPass(),
       };
       registry.entries.set(id, entry);
       if (modEnabled(id)) mountEntry(entry);
@@ -640,6 +649,20 @@
       unmountEntry(entry);
       registry.entries.delete(id);
       notifyMods();
+    },
+    sweep(pass) {
+      if (pass === undefined || pass === null) return 0;
+      let removed = 0;
+      for (const [id, entry] of [...registry.entries]) {
+        // Entries with no pass were registered outside an injection pass (e.g.
+        // from the interactive console); leave those alone.
+        if (entry.pass === undefined || entry.pass === null || entry.pass === pass) continue;
+        unmountEntry(entry);
+        registry.entries.delete(id);
+        removed++;
+      }
+      if (removed) notifyMods();
+      return removed;
     },
     list() {
       const index = new Map([...registry.entries.keys()].map((key, i) => [key, i]));

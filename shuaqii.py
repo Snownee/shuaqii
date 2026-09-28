@@ -51,10 +51,25 @@ WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 # Injected before every script run so the renderer-side overlay can label itself.
 # ``injected`` doubles as a liveness marker: it lives only as long as the page's
 # context, so when it disappears (the app reloaded the renderer) we know to re-inject.
-VERSION_BOOTSTRAP = (
-    "window.__shuaqii = Object.assign(window.__shuaqii || {}, "
-    f"{{ version: {json.dumps(__version__)}, injected: true }});"
-)
+# ``pass`` is a fresh id per injection pass: scripts stamp their registry entry with
+# it (see scripts/core.js), and the sweep below evicts entries left behind by an
+# earlier pass (e.g. a script file that was just deleted from the scripts dir).
+_pass_seq = 0
+
+
+def bootstrap_expression(pass_id):
+    return (
+        "window.__shuaqii = Object.assign(window.__shuaqii || {}, "
+        f"{{ version: {json.dumps(__version__)}, injected: true, pass: {json.dumps(pass_id)} }});"
+    )
+
+
+def sweep_expression(pass_id):
+    return (
+        "(window.__sqScripts && window.__sqScripts.sweep) "
+        f"? window.__sqScripts.sweep({json.dumps(pass_id)}) : 0"
+    )
+
 
 # True only while our injection is present in the page's current context.
 LIVENESS_PROBE = "(window.__shuaqii && window.__shuaqii.injected) === true"
@@ -381,8 +396,11 @@ def report_exception(name, label, details):
 
 
 def inject_scripts(session, scripts):
+    global _pass_seq
+    _pass_seq += 1
+    pass_id = _pass_seq
     try:
-        session.evaluate(VERSION_BOOTSTRAP)
+        session.evaluate(bootstrap_expression(pass_id))
     except WSError as exc:
         raise WSError(f"version bootstrap: {exc}") from exc
     for script in scripts:
@@ -395,6 +413,17 @@ def inject_scripts(session, scripts):
             report_exception(script.name, session.label, details)
         else:
             log(f"injected {script.name} -> {session.label}")
+    # Registry entries not refreshed by this pass belong to scripts that are no
+    # longer being injected (e.g. a file deleted from scripts/): unmount them so
+    # their overlay lines and timers go away instead of lingering forever.
+    try:
+        result = session.evaluate(sweep_expression(pass_id), return_by_value=True)
+    except WSError as exc:
+        warn(f"registry sweep failed for {session.label}: {exc}")
+        return
+    removed = (result.get("result") or {}).get("value")
+    if isinstance(removed, int) and removed > 0:
+        log(f"removed {removed} stale script registration(s) from {session.label}")
 
 
 def is_alive(session):

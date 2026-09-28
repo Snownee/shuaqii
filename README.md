@@ -113,7 +113,9 @@ instead of managing your own lifetime:
 `register(id, { label, version, order, locked, enabled, actions, mount, unmount })` is
 idempotent: re-injecting calls the previous instance's `unmount()` first, so re-running
 your file on save is safe. Overlay lines are keyed by id, so re-injection **replaces** a
-line rather than duplicating it.
+line rather than duplicating it. Each injection pass is stamped with a fresh id and
+`sweep()` evicts entries left over from earlier passes, so **deleting a file from
+`scripts/` unmounts it** (line, timers and all) instead of leaving it running.
 
 For the full API — overlay, registry, renderer services, message/error shapes, and the
 live-app verification workflow — see

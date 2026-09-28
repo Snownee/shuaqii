@@ -80,6 +80,11 @@ window.__sqScripts.register(id, {
   `unmount()` first, so you **don't** call `dispose()` at the top of your file.
 - Registry helpers: `enabled(id)`, `setEnabled(id, bool)`, `onChange(fn)` (returns an
   unsubscribe), `list()`, `unregister(id)`.
+- Each injection pass carries a fresh id (`window.__shuaqii.pass`) that `register`
+  stamps onto your entry; after a pass `shuaqii.py` calls `__sqScripts.sweep(pass)` to
+  unmount entries from earlier passes. **Deleting `scripts/<name>.js` therefore tears
+  your script down automatically** — its overlay line and ticker disappear on the next
+  reload without you doing anything.
 - Plugins can add a row button later: `__sqScripts.addAction(id, { label, onClick })`.
 
 ## Script skeleton (idempotent, hot-reload safe)
