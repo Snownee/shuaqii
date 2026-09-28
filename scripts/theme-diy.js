@@ -334,12 +334,17 @@
   }
 
   // Put the new image on whichever layer is currently hidden, then flip both opacities
-  // so the old image fades out as the new one fades in.
+  // so the old image fades out as the new one fades in. If the requested image is already
+  // the one showing, do nothing: re-picking the same picture (e.g. a page whose memory
+  // resolves to the current asset) must not replay a pointless fade between two identical
+  // layers, which shows up as a flicker.
   function setImage(uri) {
-    const next = state.bg.a.on ? "b" : "a";
-    const other = next === "a" ? "b" : "a";
+    const current = state.bg.a.on ? state.bg.a.uri : state.bg.b.uri;
+    const currentOn = state.bg.a.on ? "a" : "b";
+    if (uri === current) return;
+    const next = currentOn === "a" ? "b" : "a";
     state.bg[next] = { uri, on: true };
-    state.bg[other] = { uri: state.bg[other].uri, on: false };
+    state.bg[currentOn] = { uri: state.bg[currentOn].uri, on: false };
     layersRev++;
   }
 
