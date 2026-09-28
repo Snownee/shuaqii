@@ -184,7 +184,7 @@
 
   let sq = window.__sq;
   if (!sq || sq.version !== 1) {
-    sq = { version: 1, server: null, auth: null, windowID: null, subscribers: new Set(), timer: 0 };
+    sq = { version: 1, server: null, auth: null, windowID: null, subscribers: new Set(), timer: 0, mainClock: false };
     window.__sq = sq;
 
     let sessCache = { at: 0, id: null };
@@ -221,34 +221,6 @@
       return !!btn && btn.getAttribute("data-icon") === "stop";
     };
 
-    const runTick = () => {
-      const now = performance.now();
-      for (const sub of sq.subscribers) {
-        if (sub.busy || now - sub.last < sub.ms) continue;
-        sub.last = now;
-        sub.busy = true;
-        Promise.resolve()
-          .then(sub.fn)
-          .catch(() => {})
-          .finally(() => {
-            sub.busy = false;
-          });
-      }
-    };
-
-    sq.every = function (ms, fn) {
-      const sub = { fn, ms, last: 0, busy: false };
-      sq.subscribers.add(sub);
-      if (!sq.timer) sq.timer = setInterval(runTick, TICK_MS);
-      return function unsubscribe() {
-        sq.subscribers.delete(sub);
-        if (!sq.subscribers.size && sq.timer) {
-          clearInterval(sq.timer);
-          sq.timer = 0;
-        }
-      };
-    };
-
     sq.ready = (async () => {
       try {
         sq.server = await window.api.awaitInitialization();
@@ -263,6 +235,65 @@
       }
       return sq;
     })();
+  }
+
+  // Shared ticker. Normally the cadence comes from the Electron main process
+  // (scripts/main-clock.js): renderer timers are throttled to ~1/s while the window is
+  // hidden (and to ~1/min after a while), so subscribers would otherwise stall in the
+  // background. The main process calls `__sq.tick()` on its own unthrottled clock. With no
+  // main clock attached (core.js alone, or another app) this falls back to a local
+  // interval. Defined outside the version guard so re-injecting this file refreshes the
+  // implementation on an already-running __sq.
+  function runDueSubscribers() {
+    const now = performance.now();
+    for (const sub of sq.subscribers) {
+      if (sub.busy || now - sub.last < sub.ms) continue;
+      sub.last = now;
+      sub.busy = true;
+      Promise.resolve()
+        .then(sub.fn)
+        .catch(() => {})
+        .finally(() => {
+          sub.busy = false;
+        });
+    }
+  }
+
+  function startLocalTimer() {
+    if (sq.mainClock || sq.timer || !sq.subscribers.size) return;
+    sq.timer = setInterval(runDueSubscribers, TICK_MS);
+  }
+
+  function stopLocalTimer() {
+    if (!sq.timer) return;
+    clearInterval(sq.timer);
+    sq.timer = 0;
+  }
+
+  // Run the subscribers that are due right now; the main process calls this each tick.
+  sq.tick = runDueSubscribers;
+
+  // Switch between the main-driven clock and the local fallback timer.
+  sq.setMainClock = function (on) {
+    sq.mainClock = on === true;
+    if (sq.mainClock) stopLocalTimer();
+    else startLocalTimer();
+  };
+
+  sq.every = function (ms, fn) {
+    const sub = { fn, ms, last: 0, busy: false };
+    sq.subscribers.add(sub);
+    startLocalTimer();
+    return function unsubscribe() {
+      sq.subscribers.delete(sub);
+      if (!sq.subscribers.size) stopLocalTimer();
+    };
+  };
+
+  // Re-injection above may have replaced runDueSubscribers; make any running timer use it.
+  if (!sq.mainClock) {
+    stopLocalTimer();
+    startLocalTimer();
   }
 
   // Shared session-message loader: one HTTP request per session serves every script.

@@ -240,6 +240,16 @@ Scripts that are main-only can be injected explicitly with `--main <file>` inste
 - Renderer timers are throttled while the window is hidden, so don't rely on the renderer to
   report a *timely* busy signal — keep the fast poll in the (unthrottled) main process and
   use the bridge for event-style state that changes on user action.
+- Register a main half on `globalThis.__shuaqiiMain[id]` with a `dispose()` and a `pass`
+  copied from `globalThis.__shuaqii.pass` (shuaqii sets that per injection pass). Its sweep
+  then disposes entries from earlier passes, so deleting a marker script unmounts its main
+  half too — mirroring `__sqScripts.sweep` on the renderer. Passes include a per-run id, so
+  they never collide across separate injector runs.
+- The shared ticker is *driven from the main process* (`scripts/main-clock.js`): its main
+  half calls `__sq.tick()` in each renderer every 250ms, and its renderer half flips
+  `__sq.setMainClock(true)`, which stops core.js's local fallback interval. Every
+  `__sq.every` subscriber therefore keeps ticking while the window is hidden; delete
+  main-clock.js and core.js falls back to the local timer automatically.
 
 ## Verifying against the live app
 

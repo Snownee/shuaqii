@@ -147,6 +147,13 @@ overlay, and no registry, but `require("electron")` is available. To hand data b
 renderer, call `webContents.executeJavaScript`; **Keep Awake** publishes its state as
 `window.__shuaqiiMain["keep-awake"]` for its own renderer half to display.
 
+A main half registers a control object on `globalThis.__shuaqiiMain[id]` with a `dispose()`
+and the `pass` shuaqii stamps each injection pass. shuaqii sweeps main halves from earlier
+passes exactly like it does for the renderer, so **deleting a marker file unmounts its main
+half too** (servers, timers and all). The built-in **Main Clock** uses this plumbing to
+drive the shared `__sq.every` ticker from the main process, which keeps every subscriber
+accurate while the window is hidden.
+
 A bare `python shuaqii.py` (and `--launch`) passes `--inspect=9229` when it launches the
 app, but OpenCode Desktop already opens a main-process inspector on `9229`, so attaching
 to a running app works too. If the inspect port is unreachable shuaqii warns once and runs

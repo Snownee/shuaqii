@@ -67,6 +67,9 @@
       }
     }
 
+    // Stamped by shuaqii's main bootstrap; lets its sweep dispose this half if the file
+    // is later removed (see MainInjector.inject_all in shuaqii.py).
+    const pass = globalThis.__shuaqii && globalThis.__shuaqii.pass;
     const token = crypto.randomBytes(16).toString("hex");
     const report = { enabled: false, at: 0 };
     let httpPort = null;
@@ -201,6 +204,7 @@
 
     root[ID] = {
       id: ID,
+      pass: pass,
       tick,
       dispose() {
         clearInterval(timer);

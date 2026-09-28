@@ -55,6 +55,10 @@ WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 # it (see scripts/core.js), and the sweep below evicts entries left behind by an
 # earlier pass (e.g. a script file that was just deleted from the scripts dir).
 _pass_seq = 0
+# Each injector run gets its own id so its pass values never collide with a previous run's:
+# the renderer/main registries persist across runs, and sweep() must be able to tell a
+# script injected by *this* run from a stale one left by an earlier one.
+_RUN_ID = os.urandom(4).hex()
 
 
 def bootstrap_expression(pass_id):
@@ -68,6 +72,38 @@ def sweep_expression(pass_id):
     return (
         "(window.__sqScripts && window.__sqScripts.sweep) "
         f"? window.__sqScripts.sweep({json.dumps(pass_id)}) : 0"
+    )
+
+
+# Main-process equivalents. There is no core.js/registry in the main process, so a main
+# script keeps its control object (with a ``dispose``) on ``globalThis.__shuaqiiMain[id]``
+# and stamps it with the pass from ``globalThis.__shuaqii``. The sweep then disposes any
+# entry left over from an earlier pass — the same "deleting the file unmounts it" behaviour
+# the renderer gets from __sqScripts.sweep.
+def main_bootstrap_expression(pass_id):
+    return (
+        "globalThis.__shuaqii = Object.assign(globalThis.__shuaqii || {}, "
+        f"{{ pass: {json.dumps(pass_id)} }});"
+    )
+
+
+def main_sweep_expression():
+    return (
+        "(function () {"
+        "  const box = globalThis.__shuaqiiMain;"
+        "  const pass = globalThis.__shuaqii && globalThis.__shuaqii.pass;"
+        "  if (!box) return 0;"
+        "  let removed = 0;"
+        "  for (const key of Object.keys(box)) {"
+        "    const entry = box[key];"
+        "    if (!entry || typeof entry.dispose !== 'function') continue;"
+        "    if (entry.pass === pass) continue;"
+        "    try { entry.dispose(); } catch (e) {}"
+        "    delete box[key];"
+        "    removed += 1;"
+        "  }"
+        "  return removed;"
+        "})()"
     )
 
 
@@ -420,7 +456,7 @@ def report_exception(name, label, details):
 def inject_scripts(session, scripts):
     global _pass_seq
     _pass_seq += 1
-    pass_id = _pass_seq
+    pass_id = f"{_RUN_ID}-{_pass_seq}"
     try:
         session.evaluate(bootstrap_expression(pass_id))
     except WSError as exc:
@@ -502,8 +538,34 @@ class MainInjector:
         return self.session is not None
 
     def inject_all(self):
+        global _pass_seq
+        if self.session is None:
+            return
+        _pass_seq += 1
+        pass_id = f"{_RUN_ID}-{_pass_seq}"
+        try:
+            self.session.evaluate(main_bootstrap_expression(pass_id), command_line_api=True)
+        except (WSError, OSError) as exc:
+            warn(f"main bootstrap failed: {exc}")
+            self.session = None
+            return
         for script in list(self.scripts):
             self._eval(script)
+        if self.session is None:
+            return
+        # Entries from earlier passes belong to files no longer being injected (deleted
+        # marker script): dispose them so their timers/servers go away.
+        try:
+            result = self.session.evaluate(
+                main_sweep_expression(), return_by_value=True, command_line_api=True
+            )
+        except (WSError, OSError) as exc:
+            warn(f"main sweep failed: {exc}")
+            self.session = None
+            return
+        removed = (result.get("result") or {}).get("value")
+        if isinstance(removed, int) and removed > 0:
+            log(f"main process: removed {removed} stale script registration(s)")
 
     def _eval(self, script):
         try:
@@ -976,6 +1038,11 @@ def main(argv):
                         except (WSError, OSError) as exc:
                             drop(sid, exc)
 
+                wanted_main = build_main_scripts()
+                if main_injector is None and wanted_main:
+                    # A marker script appeared at runtime: open the main channel now.
+                    main_injector = MainInjector(o.host, o.inspect_port, wanted_main)
+                    activity = True
                 if main_injector is not None:
                     # Marker scripts ride along with the renderer set (rebuilt above when
                     # `changed`); explicit --main files are tracked here on their own.
@@ -990,7 +1057,7 @@ def main(argv):
                                 main_changed = True
                                 log(f"reloaded main script {script.name}")
                     if main_changed:
-                        main_injector.scripts = build_main_scripts()
+                        main_injector.scripts = wanted_main
                         main_injector.warned = False
                         activity = True
                         if main_injector.session is not None:
