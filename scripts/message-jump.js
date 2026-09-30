@@ -73,8 +73,27 @@
     const vpTop = vp.getBoundingClientRect().top;
     const st = vp.scrollTop;
     return [...container.querySelectorAll(USER_ROW)]
-      .map((el) => ({ id: el.getAttribute("data-message-id"), el, offset: st + (el.getBoundingClientRect().top - vpTop) }))
+      .map((el) => {
+        const rc = el.getBoundingClientRect();
+        return { id: el.getAttribute("data-message-id"), el, offset: st + (rc.top - vpTop), height: rc.height };
+      })
       .sort((a, b) => a.offset - b.offset);
+  }
+
+  // The user message whose row centre is closest to `centre` (content coords). Compared
+  // to nearestRow (row top vs an anchor), this stays put on the message you just centred,
+  // whichever side of the viewport top its row started on.
+  function nearestRowByCentre(rows, centre) {
+    let best = null;
+    let bestD = Infinity;
+    for (const r of rows) {
+      const d = Math.abs(r.offset + (r.height || 0) / 2 - centre);
+      if (d < bestD) {
+        bestD = d;
+        best = r;
+      }
+    }
+    return best;
   }
 
   const rowElById = (container, id) =>
@@ -257,22 +276,31 @@
 
     const anchor = vp.scrollTop;
     const max = Math.max(0, vp.scrollHeight - vp.clientHeight);
-    const idx = currentIndex(container, vp);
 
     let targetId = null;
-    if (idx !== -1 && sid === idsSession) {
-      const next = idx + dir;
-      if (next < 0) return; // no previous user message
-      if (next >= userIds.length) {
+    let targetIdx = -1;
+    const cur = nearestRowByCentre(userRows(container), anchor + vp.clientHeight / 2);
+    const idx = cur && userIds && sid === idsSession ? userIds.indexOf(cur.id) : -1;
+    if (idx !== -1) {
+      // Prev targets the current message itself when its row is entirely above the
+      // viewport top (i.e. we scrolled past it - notably past the last message), and the
+      // one before it otherwise; next always targets the following message. Locating the
+      // current row by its centre (not the viewport top) keeps prev/next stable right
+      // after a centred jump.
+      const past = cur.offset + (cur.height || 0) <= anchor;
+      const target = dir < 0 ? (past ? idx : idx - 1) : idx + 1;
+      if (target < 0) return; // no previous user message
+      if (target >= userIds.length) {
         vp.scrollTop = max; // no next user message: go to the very bottom
         return;
       }
-      targetId = userIds[next];
+      targetId = userIds[target];
+      targetIdx = target;
     }
 
     if (targetId) {
       if (!rowElById(container, targetId)) {
-        const ok = await revealById(container, vp, targetId, idx + dir, anchor, dir);
+        const ok = await revealById(container, vp, targetId, targetIdx, anchor, dir);
         if (!ok) {
           vp.scrollTop = anchor; // not found: don't move
           return;
@@ -497,7 +525,7 @@
   };
   reg.register(ID, {
     label: "Message Jump",
-    version: "0.0.1",
+    version: "0.0.2",
     desc: "Jump to the previous/next message you sent.",
     enabled: false,
     mount,

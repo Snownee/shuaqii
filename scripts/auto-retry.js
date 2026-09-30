@@ -467,7 +467,7 @@
   };
   reg.register(ID, {
     label: "Auto Retry",
-    version: "0.0.1",
+    version: "0.0.2",
     desc: 'Resends "continue" after an abnormal abort.',
     actions: [
       { label: "Settings", title: "Auto Retry settings", onClick: openSettings },
