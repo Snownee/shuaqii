@@ -18,7 +18,8 @@
 //
 // Its row in the mod list carries a "Settings" button opening a dialog where the
 // message sent on retry is edited; it is applied live and persisted to
-// localStorage["shuaqii.auto-retry"].
+// localStorage["shuaqii.auto-retry"]. The checkbox's armed state is persisted
+// there too, so re-injection/restart re-arms it (disabled after an auto-stop).
 
 (async () => {
   const sq = window.__sq;
@@ -38,7 +39,7 @@
   const SETTINGS_STYLE_ID = "sq-auto-retry-settings-style";
   const DIALOG_ID = "sq-autoretry-backdrop";
   const STORE_KEY = "shuaqii.auto-retry";
-  const DEFAULTS = { text: "continue" };
+  const DEFAULTS = { text: "continue", enabled: false };
 
   const state = {
     enabled: false,
@@ -113,6 +114,7 @@
           typeof parsed.text === "string" && parsed.text.trim() !== ""
             ? parsed.text
             : DEFAULTS.text,
+        enabled: parsed.enabled === true,
       };
     } catch {
       return { ...DEFAULTS };
@@ -121,7 +123,10 @@
 
   function writeSettings(settings) {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ text: settings.text }));
+      localStorage.setItem(
+        STORE_KEY,
+        JSON.stringify({ text: settings.text, enabled: settings.enabled === true })
+      );
     } catch {
       /* ignore */
     }
@@ -300,7 +305,7 @@
     actions.className = "ar-actions";
     const reset = button("Reset", "ar-btn");
     reset.addEventListener("click", () => {
-      settingsCache = { ...DEFAULTS };
+      settingsCache.text = DEFAULTS.text;
       writeSettings(settingsCache);
       msg.value = DEFAULTS.text;
     });
@@ -342,6 +347,8 @@
       state.note = "";
       // only act on errors that happen after this moment, not old ones already on screen
       state.enabledAt = box.checked ? Date.now() : 0;
+      settingsCache.enabled = box.checked;
+      writeSettings(settingsCache);
       render();
     });
     el = overlay.setNode(ID, wrap, { interactive: true });
@@ -399,6 +406,8 @@
           state.enabled = false;
           state.enabledAt = 0;
           box.checked = false;
+          settingsCache.enabled = false;
+          writeSettings(settingsCache);
           state.note = `stopped after ${MAX_CONSECUTIVE} consecutive aborts`;
         } else {
           try {
@@ -416,14 +425,15 @@
 
   function mount() {
     active = true;
-    state.enabled = false;
-    state.enabledAt = 0;
+    settingsCache = readSettings();
+    state.enabled = settingsCache.enabled === true;
+    state.enabledAt = state.enabled ? Date.now() : 0;
     state.sessionId = null;
     state.consecutive = 0;
     state.lastHandledErrorId = null;
     state.note = "";
-    settingsCache = readSettings();
     buildUI();
+    box.checked = state.enabled;
     unsubscribe = sq.every(POLL_MS, tick);
     tick().catch(() => {});
   }
