@@ -50,6 +50,10 @@ window.__sqOverlay.remove(id);
 - Lines are stacked bottom-right in registration order.
 - Items are `pointer-events: none` by default. Pass `{ interactive: true }` to make a
   line clickable (required for checkboxes/buttons).
+- A non-empty `title` makes the line a hover target and shows a tooltip styled after the
+  app's composer tooltips (implied `pointer-events: auto`), replacing the native one.
+- Any injected element can opt into the same tooltip with `data-sq-tip="…"`; give that
+  element `pointer-events: auto` so the pointer can reach it (used by `info-hud.js` rows).
 
 ## Script registry (register yourself)
 

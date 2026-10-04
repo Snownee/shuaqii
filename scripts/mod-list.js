@@ -324,10 +324,23 @@
     document.getElementById(TITLE_ID)?.removeEventListener("click", onTitleClick);
   }
 
+  // core.js shows a styled hover tooltip for any element with data-sq-tip; the
+  // "shuaqii <version>" line is already pointer-events:auto via the style above.
+  function applyTitleTip() {
+    const el = document.getElementById(TITLE_ID);
+    if (el) el.dataset.sqTip = "click to open the mod list";
+  }
+
+  function clearTitleTip() {
+    const el = document.getElementById(TITLE_ID);
+    if (el) delete el.dataset.sqTip;
+  }
+
   function mount() {
     active = true;
     ensureStyle();
     bindTitle();
+    applyTitleTip();
     unsubscribeChange = reg.onChange(() => {
       if (dialog) renderRows();
     });
@@ -341,6 +354,7 @@
       unsubscribeChange = null;
     }
     unbindTitle();
+    clearTitleTip();
     document.getElementById(STYLE_ID)?.remove();
   }
 

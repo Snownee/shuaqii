@@ -351,7 +351,10 @@
       writeSettings(settingsCache);
       render();
     });
-    el = overlay.setNode(ID, wrap, { interactive: true });
+    el = overlay.setNode(ID, wrap, {
+      interactive: true,
+      title: "auto-retry: on an abnormal abort, send the configured message (up to 3 in a row)",
+    });
   }
 
   function render() {

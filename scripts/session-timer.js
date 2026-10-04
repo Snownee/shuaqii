@@ -69,17 +69,17 @@
     let text;
     let title;
     if (!state.id) {
-      text = "session --:--";
+      text = "--:--";
       title = "no active session";
     } else if (!state.running) {
-      text = "session --:--";
-      title = `${state.id} is idle`;
+      text = "--:--";
+      title = "session is idle";
     } else if (!state.since) {
-      text = "session --:--";
-      title = `${state.id} is running`;
+      text = "--:--";
+      title = "session is running";
     } else {
-      text = `session ${format(Date.now() - state.since)}`;
-      title = `running since your last message in ${state.id}`;
+      text = `${format(Date.now() - state.since)}`;
+      title = "running since your last message";
     }
     if (text === last.text && title === last.title) return; // nothing changed: no DOM write
     last.text = text;

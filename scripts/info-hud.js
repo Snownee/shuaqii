@@ -237,8 +237,9 @@
     for (const row of ROWS) {
       const label = document.createElement("span");
       label.textContent = row.label;
-      label.title = row.title;
+      label.dataset.sqTip = row.title;
       label.style.color = COLOR_MUTED;
+      label.style.pointerEvents = "auto";
 
       const value = document.createElement("span");
       value.textContent = "\u2014";

@@ -9,6 +9,12 @@
 //   window.__sqOverlay.remove("my-id")
 //   window.__sqOverlay.clear()
 //
+// An item with a non-empty `title` becomes a hover target and shows a tooltip styled
+// after the app's composer tooltips (data-component="tooltip-v2") instead of the
+// browser's native, delayed title. `title` therefore implies pointer-events: auto.
+// Any injected element can opt in independently by setting data-sq-tip="…" (the
+// element needs pointer-events: auto so the pointer can reach it).
+//
 // Items are keyed by id, so re-injecting a script replaces its line instead of
 // stacking duplicates. Registration order is preserved. A header line showing
 // "shuaqii <version>" is kept above every item; the version comes from
@@ -64,6 +70,112 @@
     };
   }
 
+  // Hover tooltip for overlay items, styled after the app's composer tooltips
+  // (data-component="tooltip-v2"). An item carrying a `title` becomes a hover target and
+  // shows this instead of the browser's native (delayed, unstyled) tooltip. Delegated from
+  // the panel so hot-reloading core.js never stacks duplicate per-item listeners.
+  const TIP_ID = "sq-overlay-tooltip";
+  const TIP_STYLE = {
+    position: "fixed",
+    zIndex: "2147483647",
+    left: "0",
+    top: "0",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    padding: "5px 6px",
+    borderRadius: "4px",
+    background: "rgb(36, 36, 36)",
+    color: "rgb(250, 250, 250)",
+    font: "530 11px/12px Inter, sans-serif",
+    letterSpacing: "0.05px",
+    whiteSpace: "normal",
+    width: "max-content",
+    maxWidth: "60vw",
+    boxShadow:
+      "0 8px 16px rgba(0, 0, 0, 0.3), 0 4px 8px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 -0.5px 0 0 rgba(255, 255, 255, 0.06)",
+    pointerEvents: "none",
+    visibility: "hidden",
+    opacity: "0",
+    transition: "opacity 90ms ease",
+  };
+
+  let tipTimer = 0;
+  let tipShown = false;
+  let tipAnchor = null;
+
+  function tooltipEl() {
+    let el = document.getElementById(TIP_ID);
+    if (!el) {
+      el = document.createElement("div");
+      el.id = TIP_ID;
+      el.setAttribute("role", "tooltip");
+    }
+    Object.assign(el.style, TIP_STYLE);
+    return el;
+  }
+
+  function hideTooltip() {
+    clearTimeout(tipTimer);
+    tipTimer = 0;
+    tipAnchor = null;
+    if (!tipShown) return;
+    tipShown = false;
+    const el = document.getElementById(TIP_ID);
+    if (el) el.style.opacity = "0";
+  }
+
+  function showTooltip(anchor, text) {
+    if (!text) return hideTooltip();
+    const el = tooltipEl();
+    el.textContent = text;
+    if (!el.isConnected) (document.body || document.documentElement).appendChild(el);
+    el.style.visibility = "hidden";
+    el.style.opacity = "0";
+    const r = anchor.getBoundingClientRect();
+    const tw = el.offsetWidth;
+    const th = el.offsetHeight;
+    let left = r.left + r.width / 2 - tw / 2;
+    let top = r.top - th - 6;
+    if (top < 4) top = r.bottom + 6; // no room above: flip below the item
+    left = Math.min(Math.max(4, left), Math.max(4, window.innerWidth - tw - 4));
+    top = Math.min(Math.max(4, top), Math.max(4, window.innerHeight - th - 4));
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.visibility = "visible";
+    el.style.opacity = "1";
+    tipShown = true;
+    tipAnchor = anchor;
+  }
+
+  // Resolve the tooltip target under an event: an element anywhere with
+  // data-sq-tip="…" wins, then an overlay item carrying a `title`.
+  function tipTarget(e) {
+    const t = e.target;
+    if (!t || !t.closest) return null;
+    const tagged = t.closest("[data-sq-tip]");
+    if (tagged && tagged.dataset.sqTip) return { el: tagged, text: tagged.dataset.sqTip };
+    const item = t.closest("[data-sq-item]");
+    if (!item) return null;
+    const rec = items.get(item.dataset.sqItem);
+    return rec && rec.title ? { el: item, text: rec.title } : null;
+  }
+
+  function onTipOver(e) {
+    const target = tipTarget(e);
+    if (!target) return;
+    if (tipShown && tipAnchor === target.el) return; // already showing for this target
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => showTooltip(target.el, target.text), 150);
+  }
+
+  function onTipOut(e) {
+    const target = tipTarget(e);
+    if (!target) return;
+    if (e.relatedTarget && target.el.contains(e.relatedTarget)) return;
+    hideTooltip();
+  }
+
   function ensureVersionLine(panel) {
     let el = document.getElementById(VERSION_ID);
     if (!el) {
@@ -88,6 +200,14 @@
     }
     Object.assign(panel.style, PANEL_STYLE);
     ensureVersionLine(panel);
+    // Rebind to this injection's handlers so editing onTipOver/onTipOut takes effect on
+    // hot reload (a plain "bind once" guard would keep the stale closure forever).
+    if (panel.__sqTipOver) panel.removeEventListener("pointerover", panel.__sqTipOver);
+    if (panel.__sqTipOut) panel.removeEventListener("pointerout", panel.__sqTipOut);
+    panel.__sqTipOver = onTipOver;
+    panel.__sqTipOut = onTipOut;
+    panel.addEventListener("pointerover", onTipOver);
+    panel.addEventListener("pointerout", onTipOut);
     return panel;
   }
 
@@ -106,16 +226,19 @@
   // Cheap per-call write: only the properties the caller actually overrides.
   function applyOverrides(item) {
     if (item.color) item.el.style.color = item.color;
-    if (item.interactive !== undefined) item.el.style.pointerEvents = item.interactive ? "auto" : "none";
+    const interactive = item.interactive !== undefined ? item.interactive : !!item.title;
+    item.el.style.pointerEvents = interactive ? "auto" : "none";
   }
 
   function ensureItem(id) {
     let item = items.get(id);
     if (!item) {
-      item = { el: document.createElement("div"), color: undefined, interactive: undefined };
+      item = { el: document.createElement("div"), color: undefined, interactive: undefined, title: "" };
       styleItem(item);
       items.set(id, item);
     }
+    if (item.title === undefined) item.title = "";
+    item.el.dataset.sqItem = id;
     if (!item.el.isConnected) ensurePanel().appendChild(item.el);
     return item;
   }
@@ -125,9 +248,9 @@
     const item = ensureItem(id);
     if (opts.color) item.color = opts.color;
     if (opts.interactive !== undefined) item.interactive = opts.interactive;
-    if (opts.color || opts.interactive !== undefined) applyOverrides(item);
+    if (opts.title !== undefined) item.title = opts.title || "";
+    applyOverrides(item);
     item.el.textContent = text;
-    item.el.title = opts.title || "";
     return item.el;
   }
 
@@ -136,8 +259,8 @@
     const item = ensureItem(id);
     if (opts.color) item.color = opts.color;
     if (opts.interactive !== undefined) item.interactive = opts.interactive;
-    if (opts.color || opts.interactive !== undefined) applyOverrides(item);
-    if (opts.title !== undefined) item.el.title = opts.title;
+    if (opts.title !== undefined) item.title = opts.title || "";
+    applyOverrides(item);
     item.el.replaceChildren(node);
     return item.el;
   }
@@ -145,6 +268,7 @@
   function remove(id) {
     const item = items.get(id);
     if (item) {
+      if (item.el === tipAnchor) hideTooltip();
       item.el.remove();
       items.delete(id);
     }
