@@ -1,6 +1,6 @@
 ---
 name: inject-script
-description: Use when adding or editing an OpenCode Desktop injection script for this repo's CDP toolchain (shuaqii.py + scripts/core.js) — registering overlay lines, reading session/message state from the bundled server, detecting running/idle, or sending messages. Triggers: "new inject script", "新增脚本", "写个脚本注入", "overlay", "session-timer", "auto-retry", "shuaqii".
+description: Use when adding or editing an OpenCode Desktop injection script for this repo's CDP toolchain (shuaqii.py + scripts/core.js) — registering overlay lines, reading session/message state from the bundled server, detecting running/idle, or sending messages. Triggers: "new inject script", "新增脚本", "写个脚本注入", "overlay", "session-timer", "retry", "shuaqii".
 ---
 
 # Writing an injection script for `shuaqii`
@@ -18,7 +18,7 @@ Chrome DevTools Protocol.
   drawing its own UI.
 - `scripts/mod-list.js` — renders the registry: clicking the overlay's
   `shuaqii <version>` title opens a modal where the user enables/disables scripts.
-- `scripts/session-timer.js`, `scripts/auto-retry.js`, `scripts/message-jump.js`,
+- `scripts/session-timer.js`, `scripts/retry.js`, `scripts/message-jump.js`,
   `scripts/theme-diy.js`, `scripts/queued-message.js` — reference implementations to
   copy from.
 

@@ -421,7 +421,7 @@
   // stops again). "Running" is inferred from the session's own last message, so it works
   // even when a different session is open. See the readme note on alternatives.
   // A session that stopped because of an error (not a manual stop): its last assistant
-  // message carries info.error, or a "Bad Request" text (mirrors auto-retry). While such
+  // message carries info.error, or a "Bad Request" text (mirrors retry). While such
   // a tail is in place the queue is held, so a broken run is not auto-fed another message.
   function sessionErrored(list) {
     if (!Array.isArray(list) || !list.length) return false;

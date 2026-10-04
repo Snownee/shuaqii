@@ -63,17 +63,17 @@ python shuaqii.py --list     # list debug targets ("*" = injectable), then exit
 
 These live in `scripts/` and are managed from the overlay's script list:
 
-| Mod                | What it does                                                                              | Default            |
-| ------------------ | ----------------------------------------------------------------------------------------- | ------------------ |
-| **Session Timer**  | Shows elapsed time since your last message.                                               | On                 |
-| **Auto Retry**     | Resends `"continue"` after an abnormal abort; stops after 3 in a row.                     | On                 |
-| **Queued Message** | Alt+Enter (or Alt+click send) queues a message; it auto-sends when the session goes idle. | On                 |
-| **Mod List**       | The enable/disable dialog behind the `shuaqii` title.                                     | Always on (locked) |
-| **Info HUD**       | Grid of session facts: id, agent/model, tokens, cost, changed files, and more.            | Off                |
-| **Message Jump**   | Up/down buttons to jump between the messages you sent.                                    | Off                |
-| **Theme DIY**      | Random `theme-diy/bg/` background per session, with opacity + extra CSS.                  | Off                |
-| **Keep Awake**     | Holds an Electron power blocker while a session runs, so the machine won't sleep.         | On                 |
-| **Paste Fix**      | Insert multiline pastes as one input event (opencode PR #45497).                          | On                 |
+| Mod                | What it does                                                                              | Default   |
+| ------------------ | ----------------------------------------------------------------------------------------- | --------- |
+| **Session Timer**  | Shows elapsed time since your last message.                                               | On        |
+| **Retry**          | Resends `"continue"` after an abnormal abort; stops after 3 in a row.                     | On        |
+| **Queued Message** | Alt+Enter (or Alt+click send) queues a message; it auto-sends when the session goes idle. | On        |
+| **Keep Awake**     | Holds an Electron power blocker while a session runs, so the machine won't sleep.         | On        |
+| **Paste Fix**      | Insert multiline pastes as one input event (opencode PR #45497).                          | On        |
+| **Mod List**       | The enable/disable dialog behind the `shuaqii` title.                                     | Always on |
+| **Info HUD**       | Grid of session facts: id, agent/model, tokens, cost, changed files, and more.            | Off       |
+| **Message Jump**   | Up/down buttons to jump between the messages you sent.                                    | Off       |
+| **Theme DIY**      | Random `theme-diy/bg/` background per session, with opacity + extra CSS.                  | Off       |
 
 ![](demo-pics/1.png)
 ![](demo-pics/2.png)
@@ -231,7 +231,7 @@ scripts/                       bundled scripts, auto-loaded
   core.js                      overlay + shared services + script registry
   mod-list.js                  enable/disable UI (behind the overlay title)
   session-timer.js
-  auto-retry.js
+  retry.js
   queued-message.js
   message-jump.js
   info-hud.js

@@ -4,7 +4,7 @@
 //
 // Renderer timers are throttled while the window is hidden — setInterval drops to ~1/s
 // (and ~1/min after a while) and requestAnimationFrame pauses — so every subscriber of
-// __sq.every (session-timer, auto-retry, queued-message, …) would stall in the background.
+// __sq.every (session-timer, retry, queued-message, …) would stall in the background.
 // The main process timer is never throttled, so its half calls __sq.tick() in each renderer
 // on a fixed cadence and the renderer half flips core.js over via __sq.setMainClock(true)
 // (which stops the local fallback interval). Delete this file and core.js falls back to the

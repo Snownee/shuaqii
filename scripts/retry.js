@@ -5,7 +5,7 @@
 // Requires scripts/core.js to be injected first (window.__sq shared services and
 // the window.__sqScripts registry it registers itself with).
 //
-//   python shuaqii.py --live -s scripts/core.js -s scripts/auto-retry.js
+//   python shuaqii.py --live -s scripts/core.js -s scripts/retry.js
 //
 // How it decides:
 //   running  -> the session's own tail is unfinished: page-independent, via
@@ -18,7 +18,7 @@
 //
 // Its row in the mod list carries a "Settings" button opening a dialog where the
 // message sent on retry is edited; it is applied live and persisted to
-// localStorage["shuaqii.auto-retry"]. The checkbox's armed state is persisted
+// localStorage["shuaqii.retry"]. The checkbox's armed state is persisted
 // there too, so re-injection/restart re-arms it (disabled after an auto-stop).
 
 (async () => {
@@ -26,19 +26,19 @@
   const overlay = window.__sqOverlay;
   const reg = window.__sqScripts;
   if (!sq || !overlay || !reg) {
-    console.warn("[auto-retry] scripts/core.js must be injected first");
+    console.warn("[retry] scripts/core.js must be injected first");
     return;
   }
   await sq.ready;
 
-  const ID = "auto-retry";
+  const ID = "retry";
   const POLL_MS = 1500;
   const MAX_CONSECUTIVE = 3;
   const COLOR_OK = "#4ade80";
   const COLOR_ERROR = "#f87171";
-  const SETTINGS_STYLE_ID = "sq-auto-retry-settings-style";
-  const DIALOG_ID = "sq-autoretry-backdrop";
-  const STORE_KEY = "shuaqii.auto-retry";
+  const SETTINGS_STYLE_ID = "sq-retry-settings-style";
+  const DIALOG_ID = "sq-retry-backdrop";
+  const STORE_KEY = "shuaqii.retry";
   const DEFAULTS = { text: "continue", enabled: false };
 
   const state = {
@@ -268,7 +268,7 @@
     const head = document.createElement("div");
     head.className = "ar-head";
     const title = document.createElement("span");
-    title.textContent = "Auto Retry \u00b7 Settings";
+    title.textContent = "Retry \u00b7 Settings";
     const closeBtn = button("\u00d7", "ar-close");
     closeBtn.title = "close";
     closeBtn.addEventListener("click", (e) => {
@@ -356,7 +356,7 @@
 
   function render() {
     if (!active || !el) return;
-    let label = "auto-retry";
+    let label = "retry";
     if (state.note) label += ` \u00b7 ${state.note}`;
     else if (state.enabled) label += ` \u00b7 ${state.consecutive}/${MAX_CONSECUTIVE}`;
     if (text.textContent !== label) text.textContent = label;
@@ -452,7 +452,7 @@
     el = null;
   }
 
-  window.__sqAutoRetry = {
+  window.__sqRetry = {
     dispose: unmount,
     tick,
     render,
@@ -466,15 +466,15 @@
     closeSettings,
   };
   reg.register(ID, {
-    label: "Auto Retry",
+    label: "Retry",
     version: "0.0.2",
     desc: 'Resends "continue" after an abnormal abort.',
     actions: [
-      { label: "Settings", title: "Auto Retry settings", onClick: openSettings },
+      { label: "Settings", title: "Retry settings", onClick: openSettings },
     ],
     mount,
     unmount,
   });
 
-  console.log("[auto-retry] registered");
+  console.log("[retry] registered");
 })();
