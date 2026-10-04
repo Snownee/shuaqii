@@ -14,8 +14,9 @@ watching your files and re-injecting on every save, and surviving page reloads. 
   your code in each, and re-inject automatically when the page reloads or a file changes.
   It works on any Electron app you can start with `--remote-debugging-port=<n>`.
 - **The built-in scripts** — `scripts/*.js`, a set of scripts (session timer, auto retry,
-  delayed queue, info HUD, message jump, theme DIY, and the script list itself) built on a
-  shared bottom-right overlay and a shared service layer, `scripts/core.js`.
+  delayed queue, info HUD, message jump, theme DIY, keep awake, paste fix, and the script
+  list itself) built on a shared bottom-right overlay and a shared service layer,
+  `scripts/core.js`.
 
 ## Requirements
 
@@ -72,6 +73,7 @@ These live in `scripts/` and are managed from the overlay's script list:
 | **Message Jump**   | Up/down buttons to jump between the messages you sent.                                    | Off                |
 | **Theme DIY**      | Random `theme-diy/bg/` background per session, with opacity + extra CSS.                  | Off                |
 | **Keep Awake**     | Holds an Electron power blocker while a session runs, so the machine won't sleep.         | On                 |
+| **Paste Fix**      | Insert multiline pastes as one input event (opencode PR #45497).                          | On                 |
 
 ![](demo-pics/1.png)
 ![](demo-pics/2.png)
@@ -170,25 +172,25 @@ blocker immediately — and pushes status back the other way with
 
 ## `shuaqii.py` CLI reference
 
-| Flag                | Description                                                                 |
-| ------------------- | --------------------------------------------------------------------------- |
-| `-s, --script FILE` | JS file to inject (repeatable; order preserved).                            |
-| `-e, --eval CODE`   | Inline JS to inject (repeatable).                                           |
+| Flag                | Description                                                                       |
+| ------------------- | --------------------------------------------------------------------------------- |
+| `-s, --script FILE` | JS file to inject (repeatable; order preserved).                                  |
+| `-e, --eval CODE`   | Inline JS to inject (repeatable).                                                 |
 | `--main FILE`       | JS file to inject into the Electron main process (repeatable; needs `--inspect`). |
-| `--inspect-port N`  | Main-process Node inspect port (default `9229`).                            |
-| `-i, --interactive` | Read JS from stdin and run it in every window.                              |
-| `--live`            | Watch `-s` files and re-inject on save (hot reload).                        |
-| `-w, --watch`       | Keep running and inject into new windows.                                   |
-| `-t, --timeout SEC` | Stop after N seconds.                                                       |
-| `-l, --list`        | List debug targets and exit.                                                |
-| `--launch [EXE]`    | Launch the app with the debug port (auto-detects OpenCode Desktop).         |
-| `--restart`         | **DANGER:** kill the running app before `--launch`. External terminal only. |
-| `--isolated`        | Launch a separate debug copy with its own `--user-data-dir` (see limits).   |
-| `--wait SEC`        | Seconds to wait for the debug port after `--launch` (default 25).           |
-| `-p, --port N`      | Remote debugging port (default `9222`).                                     |
-| `-H, --host H`      | Debug host (default `127.0.0.1`).                                           |
-| `-u, --url REGEX`   | Only inject targets whose URL matches.                                      |
-| `-V, --version`     | Print the version.                                                          |
+| `--inspect-port N`  | Main-process Node inspect port (default `9229`).                                  |
+| `-i, --interactive` | Read JS from stdin and run it in every window.                                    |
+| `--live`            | Watch `-s` files and re-inject on save (hot reload).                              |
+| `-w, --watch`       | Keep running and inject into new windows.                                         |
+| `-t, --timeout SEC` | Stop after N seconds.                                                             |
+| `-l, --list`        | List debug targets and exit.                                                      |
+| `--launch [EXE]`    | Launch the app with the debug port (auto-detects OpenCode Desktop).               |
+| `--restart`         | **DANGER:** kill the running app before `--launch`. External terminal only.       |
+| `--isolated`        | Launch a separate debug copy with its own `--user-data-dir` (see limits).         |
+| `--wait SEC`        | Seconds to wait for the debug port after `--launch` (default 25).                 |
+| `-p, --port N`      | Remote debugging port (default `9222`).                                           |
+| `-H, --host H`      | Debug host (default `127.0.0.1`).                                                 |
+| `-u, --url REGEX`   | Only inject targets whose URL matches.                                            |
+| `-V, --version`     | Print the version.                                                                |
 
 If neither `-s` nor `-e` is given, every `.js` in `scripts/` is loaded automatically
 (`core.js` first) and the directory is watched.
@@ -235,6 +237,7 @@ scripts/                       bundled scripts, auto-loaded
   info-hud.js
   theme-diy.js
   keep-awake.js                also opts into the main process (see the marker below)
+  paste-fix.js                 silent: one input event for multiline pastes (PR #45497)
 examples/
   sample-patch.js              minimal injection example
 theme-diy/bg/                  background images used by Theme DIY
