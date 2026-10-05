@@ -24,6 +24,11 @@
 // minute. The main-side poll runs on the main process timer (never throttled) and reads
 // window.__sq.isSessionBusy(...) directly, so the block is taken promptly either way.
 //
+// Its row in the mod list carries a "Settings" button opening a dialog where the
+// status line can be shown or hidden; the choice is applied live and persisted to
+// localStorage["shuaqii.keep-awake"]. Hiding the line does not disable the mod:
+// the main half keeps holding the blocker while the session runs.
+//
 // The marker is how shuaqii knows to send this file to the main process as well.
 // @shuaqii:main
 
@@ -264,6 +269,10 @@
       const COLOR_ON = "#4ade80";
       const COLOR_OFF = "#737373";
       const COLOR_WARN = "#fbbf24";
+      const STORE_KEY = "shuaqii.keep-awake";
+      const SETTINGS_STYLE_ID = "sq-keep-awake-settings-style";
+      const DIALOG_ID = "sq-keep-awake-backdrop";
+      const DEFAULTS = { overlay: true };
 
       const supported = !!(navigator.wakeLock && typeof navigator.wakeLock.request === "function");
 
@@ -275,6 +284,28 @@
       let lock = null;
       let pending = false;
       let lastReportAt = 0;
+      let settings = readSettings();
+      let dialog = null;
+
+      // ---- settings -----------------------------------------------------------
+      function readSettings() {
+        try {
+          const raw = localStorage.getItem(STORE_KEY);
+          const parsed = raw ? JSON.parse(raw) : null;
+          if (!parsed || typeof parsed !== "object") return { ...DEFAULTS };
+          return { overlay: parsed.overlay !== false };
+        } catch {
+          return { ...DEFAULTS };
+        }
+      }
+
+      function writeSettings(next) {
+        try {
+          localStorage.setItem(STORE_KEY, JSON.stringify({ overlay: next.overlay !== false }));
+        } catch {
+          /* ignore */
+        }
+      }
 
       // Status (incl. bridge port + token) published by the main half, or null.
       function mainStatus() {
@@ -398,6 +429,13 @@
 
       function render() {
         if (!active) return;
+        if (!settings.overlay) {
+          if (last.text !== null) {
+            last.text = null;
+            overlay.remove(ID);
+          }
+          return;
+        }
         let text;
         let color;
         let title;
@@ -446,6 +484,173 @@
         overlay.set(ID, text, { color, title });
       }
 
+      // ---- settings dialog ----------------------------------------------------
+      function ensureSettingsStyle() {
+        let style = document.getElementById(SETTINGS_STYLE_ID);
+        if (!style) {
+          style = document.createElement("style");
+          style.id = SETTINGS_STYLE_ID;
+          document.head.appendChild(style);
+        }
+        style.textContent = `
+          #${DIALOG_ID} {
+            position: fixed;
+            inset: 0;
+            z-index: 2147483647;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.5);
+            font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            pointer-events: auto;
+          }
+          #${DIALOG_ID} .ka-panel {
+            min-width: 260px;
+            max-width: 70vw;
+            max-height: 70vh;
+            overflow: auto;
+            background: rgba(17, 17, 17, 0.97);
+            color: #e5e5e5;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 6px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+            padding: 12px 14px;
+            outline: none;
+          }
+          #${DIALOG_ID} .ka-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+            color: #4ade80;
+          }
+          #${DIALOG_ID} .ka-close {
+            background: none;
+            border: 0;
+            color: #e5e5e5;
+            font: inherit;
+            cursor: pointer;
+            padding: 0 4px;
+          }
+          #${DIALOG_ID} .ka-close:hover { color: #f87171; }
+          #${DIALOG_ID} .ka-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            user-select: none;
+          }
+          #${DIALOG_ID} .ka-row input { margin: 0; cursor: pointer; }
+          #${DIALOG_ID} .ka-hint { margin-top: 6px; color: #737373; }
+          #${DIALOG_ID} .ka-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 12px;
+          }
+          #${DIALOG_ID} .ka-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 4px;
+            color: inherit;
+            font: inherit;
+            cursor: pointer;
+            padding: 2px 10px;
+          }
+          #${DIALOG_ID} .ka-btn:hover { background: rgba(255, 255, 255, 0.16); }
+        `;
+      }
+
+      function closeSettings() {
+        if (!dialog) return;
+        dialog.remove();
+        dialog = null;
+        window.removeEventListener("keydown", onDialogKey, true);
+        document.getElementById(SETTINGS_STYLE_ID)?.remove();
+      }
+
+      // Capture on window (not document) so Escape closes only this dialog and not the
+      // mod list modal underneath it.
+      function onDialogKey(e) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          closeSettings();
+        }
+      }
+
+      function button(label, cls) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = cls;
+        b.textContent = label;
+        return b;
+      }
+
+      function openSettings() {
+        if (dialog) return;
+        ensureSettingsStyle();
+
+        const backdrop = document.createElement("div");
+        backdrop.id = DIALOG_ID;
+        backdrop.addEventListener("click", (e) => {
+          if (e.target === backdrop) closeSettings();
+        });
+
+        const panel = document.createElement("div");
+        panel.className = "ka-panel";
+        panel.tabIndex = -1;
+        panel.addEventListener("click", (e) => e.stopPropagation());
+
+        const head = document.createElement("div");
+        head.className = "ka-head";
+        const title = document.createElement("span");
+        title.textContent = "Keep Awake \u00b7 Settings";
+        const closeBtn = button("\u00d7", "ka-close");
+        closeBtn.title = "close";
+        closeBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          closeSettings();
+        });
+        head.append(title, closeBtn);
+        panel.appendChild(head);
+
+        const row = document.createElement("label");
+        row.className = "ka-row";
+        row.title = "show the awake status line in the bottom-right overlay";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = settings.overlay !== false;
+        box.addEventListener("change", () => {
+          settings.overlay = box.checked;
+          writeSettings(settings);
+          render();
+        });
+        const rowText = document.createElement("span");
+        rowText.textContent = "Show overlay";
+        row.append(box, rowText);
+        panel.appendChild(row);
+
+        const hint = document.createElement("div");
+        hint.className = "ka-hint";
+        hint.textContent = "Hiding the line does not disable Keep Awake; the blocker still runs.";
+        panel.appendChild(hint);
+
+        const actions = document.createElement("div");
+        actions.className = "ka-actions";
+        const done = button("Close", "ka-btn");
+        done.addEventListener("click", closeSettings);
+        actions.appendChild(done);
+        panel.appendChild(actions);
+
+        backdrop.appendChild(panel);
+        document.body.appendChild(backdrop);
+        window.addEventListener("keydown", onDialogKey, true);
+        panel.focus();
+        dialog = backdrop;
+      }
+
       async function tick() {
         if (!active) return;
         await refresh();
@@ -463,6 +668,7 @@
 
       function mount() {
         active = true;
+        settings = readSettings();
         state.id = null;
         state.busy = false;
         state.held = false;
@@ -482,6 +688,7 @@
           unsubscribe();
           unsubscribe = null;
         }
+        closeSettings();
         document.removeEventListener("visibilitychange", onVisibility);
         reportDisabled();
         release();
@@ -506,12 +713,18 @@
         get main() {
           return state.main;
         },
+        get settings() {
+          return { ...settings };
+        },
+        openSettings,
+        closeSettings,
       };
       reg.register(ID, {
         label: "Keep Awake",
-        version: "0.0.1",
+        version: "0.0.2",
         desc: "Keeps the machine awake while the session is running.",
         enabled: false,
+        actions: [{ label: "Settings", title: "Keep Awake settings", onClick: openSettings }],
         mount,
         unmount,
       });
