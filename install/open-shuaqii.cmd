@@ -2,6 +2,7 @@
 setlocal
 set "DEST=%LOCALAPPDATA%\shuaqii"
 set "APP=%DEST%\shuaqii.py"
+set "LOG=%DEST%\shuaqii.log"
 
 if not exist "%APP%" (
   echo shuaqii not found at "%DEST%".
@@ -9,6 +10,10 @@ if not exist "%APP%" (
   pause
   exit /b 1
 )
+
+rem Also tee output to a log file, so a hidden launch (open-shuaqii.vbs) and a
+rem visible one leave the same record.
+echo [launcher] %DATE% %TIME% >> "%LOG%"
 
 rem If OpenCode is already running without a debug port, the injector cannot
 rem attach to it (single-instance lock). Offer to restart it, which is why this

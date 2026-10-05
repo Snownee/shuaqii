@@ -247,10 +247,11 @@ If neither `-s` nor `-e` is given, every `.js` in `scripts/` is loaded automatic
 shuaqii.py                     the CDP injector (stdlib only)
 INSTALL.txt                    one-line prompt that has an agent install shuaqii
 install/
-  open-shuaqii.cmd             Windows launcher the shortcut points at
+  open-shuaqii.ps1             Windows launcher the shortcut points at (hidden)
+  open-shuaqii.cmd             Windows: visible-terminal alternative
   make-shortcut.ps1            Windows: creates the "shuaqii (OpenCode)" .lnk
   open-shuaqii.sh              macOS/Linux launcher the shortcut points at
-  make-shortcut.sh             macOS/Linux: .command (macOS) / .desktop (Linux)
+  make-shortcut.sh             macOS/Linux: .app (macOS) / .desktop (Linux)
 scripts/                       bundled mods, auto-loaded
   core.js                      overlay + shared services + mod registry
   mod-list.js                  enable/disable UI (behind the overlay title)

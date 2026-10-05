@@ -104,8 +104,13 @@ macOS / Linux (bash):
     bash "$DEST/install/make-shortcut.sh"
 
 This creates (or refreshes) a "shuaqii (OpenCode)" shortcut/launcher for the
-user: a desktop .lnk on Windows, a ~/Desktop .command on macOS, and a
-.desktop entry on Linux. Run it on both a fresh install and an update.
+user: a desktop .lnk on Windows, an app in ~/Desktop on macOS, and a .desktop
+entry on Linux. Run it on both a fresh install and an update.
+
+The launcher starts OpenCode with no console/terminal window. If OpenCode is
+already running it asks (a native dialog on every platform) before restarting,
+and shuaqii's output is appended to `shuaqii.log` in the install directory.
+Windows also ships `install\open-shuaqii.cmd`, a visible-terminal alternative.
 
 STEP 6 — Report back, in the user's own language
 
