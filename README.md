@@ -20,18 +20,35 @@ watching your files and re-injecting on every save, and surviving page reloads. 
 
 ## Requirements
 
-- **Windows** for auto-launch and `--restart` (the app paths probed by `--launch` are
-  Windows locations). The injector core itself only needs Python 3 + an Electron app
-  started with a remote debugging port, so the CDP half is portable.
 - **Python 3** — no `pip install`; standard library only.
-- **OpenCode Desktop** installed, or pass `--launch <path/to/app.exe>`.
+- **OpenCode Desktop** installed, or pass `--launch <path/to/app>`.
+- **Windows, macOS, or Linux.** Auto-launch, `--restart`, and the installed
+  shortcut each have a per-OS implementation; the injector core only needs Python 3 +
+  an Electron app started with a remote debugging port, so the CDP half is fully
+  portable. On macOS/Linux the POSIX helpers use `pgrep`/`pkill` (from `procps`) for
+  restart, and app auto-detection probes the usual `.app` / `$PATH` / AppImage spots.
+
+### Let an agent install it
+
+Paste this one line into an OpenCode session and the agent downloads, installs,
+and creates a desktop shortcut for you (Windows, macOS, or Linux):
+
+```text
+Read https://raw.githubusercontent.com/Snownee/shuaqii/main/INSTALL.txt and follow its instructions to install shuaqii.
+```
+
+When it finishes, **fully quit OpenCode Desktop** and open the new
+`shuaqii (OpenCode)` shortcut (desktop `.lnk` on Windows, `~/Desktop` `.command` on
+macOS, a `.desktop` entry on Linux). The agent never launches OpenCode itself — that
+step restarts the app to open a debug port, so it is left to you. See
+[`INSTALL.txt`](INSTALL.txt) for the full instructions.
 
 ## Quickstart
 
 Run this from an **external terminal** (not from inside OpenCode Desktop):
 
-```powershell
-python shuaqii.py
+```sh
+python shuaqii.py      # Windows / macOS / Linux (use python3 if python is v2)
 ```
 
 With no arguments, and `.js` files present in `scripts/`, a bare run:
@@ -217,7 +234,8 @@ If neither `-s` nor `-e` is given, every `.js` in `scripts/` is loaded automatic
   attach is to start it with `--remote-debugging-port=<n>` while **no other instance is
   running**.
 - **`--restart` is fatal to the host.** If you are running inside OpenCode Desktop, never
-  `taskkill` it — you kill your own host/session. Use an external terminal.
+  kill it (`taskkill` on Windows, `pkill` on macOS/Linux) — you kill your own
+  host/session. Use an external terminal or the installed shortcut.
 - **Renderer reloads wipe the injection.** Ctrl+F5, the app's Reload, or
   `location.reload()` clears our context. A watching injector (auto-load, `--live`,
   `--watch`, `-i`) re-injects automatically; a one-shot `-s`/`-e` run exits and must be
@@ -227,6 +245,12 @@ If neither `-s` nor `-e` is given, every `.js` in `scripts/` is loaded automatic
 
 ```text
 shuaqii.py                     the CDP injector (stdlib only)
+INSTALL.txt                    one-line prompt that has an agent install shuaqii
+install/
+  open-shuaqii.cmd             Windows launcher the shortcut points at
+  make-shortcut.ps1            Windows: creates the "shuaqii (OpenCode)" .lnk
+  open-shuaqii.sh              macOS/Linux launcher the shortcut points at
+  make-shortcut.sh             macOS/Linux: .command (macOS) / .desktop (Linux)
 scripts/                       bundled mods, auto-loaded
   core.js                      overlay + shared services + mod registry
   mod-list.js                  enable/disable UI (behind the overlay title)

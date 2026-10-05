@@ -4,7 +4,9 @@
 Pure standard library, no pip installs. It talks to an app's remote debugging
 endpoint (the one you get from ``--remote-debugging-port=<n>``), attaches to
 every renderer target and evaluates your mod inside it. It can also launch
-the app for you (auto-detects OpenCode Desktop on Windows).
+the app for you (auto-detects OpenCode Desktop on Windows, macOS and Linux).
+The CDP half is fully cross-platform; only app auto-detection and the
+restart/stop helpers vary per OS.
 
 Ways to change the injected code at any time
 --------------------------------------------
@@ -32,6 +34,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import socket
 import struct
 import subprocess
@@ -116,12 +119,43 @@ LIVENESS_PROBE = "(window.__shuaqii && window.__shuaqii.injected) === true"
 # forever about an unreachable endpoint.
 PORT_LOST_GRACE = 3.0
 
-DEFAULT_OPENCODE_PATHS = [
+# Candidate OpenCode Desktop executables, per platform. --launch probes these
+# when no explicit EXE is given; the CDP half of the injector itself is
+# platform-independent, so only this list and the process helpers below are
+# platform-specific.
+_OPENCODE_PATHS_WINDOWS = [
     os.path.expandvars(r"%LOCALAPPDATA%\Programs\@opencode-aidesktop\OpenCode.exe"),
     os.path.expandvars(r"%LOCALAPPDATA%\Programs\opencode\OpenCode.exe"),
     os.path.expandvars(r"%LOCALAPPDATA%\Programs\opencode-desktop\OpenCode.exe"),
     os.path.expandvars(r"%PROGRAMFILES%\OpenCode\OpenCode.exe"),
 ]
+
+_OPENCODE_PATHS_MACOS = [
+    "/Applications/OpenCode.app/Contents/MacOS/OpenCode",
+    os.path.expanduser("~/Applications/OpenCode.app/Contents/MacOS/OpenCode"),
+    "/Applications/opencode.app/Contents/MacOS/opencode",
+]
+
+_OPENCODE_PATHS_LINUX = [
+    "/usr/bin/opencode",
+    "/usr/local/bin/opencode",
+    os.path.expanduser("~/.local/bin/opencode"),
+    "/opt/OpenCode/opencode",
+    "/opt/opencode/opencode",
+    os.path.expanduser("~/Applications/OpenCode.AppImage"),
+    os.path.expanduser("~/Applications/opencode.AppImage"),
+]
+
+
+def _default_opencode_paths():
+    if sys.platform == "darwin":
+        return _OPENCODE_PATHS_MACOS
+    if sys.platform.startswith("linux"):
+        return _OPENCODE_PATHS_LINUX
+    return _OPENCODE_PATHS_WINDOWS
+
+
+DEFAULT_OPENCODE_PATHS = _default_opencode_paths()
 
 # Where mods are auto-loaded from when neither -s nor -e is given.
 SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
@@ -614,32 +648,72 @@ def find_opencode():
     return None
 
 
-def _tasklist(name):
+def _process_running(name):
+    """Whether a process named ``name`` is running (case-insensitive).
+
+    Windows uses tasklist (IMAGE name); POSIX uses pgrep -f against the full
+    command line, since the executable basename can be wrapped (e.g. a macOS
+    .app launcher or an AppImage). Returns False when the probe tool is absent.
+    """
+    if sys.platform == "win32":
+        try:
+            out = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {name}", "/NH"],
+                capture_output=True,
+                text=True,
+            ).stdout
+        except OSError:
+            return False
+        return name.lower() in out.lower()
     try:
-        out = subprocess.run(
-            ["tasklist", "/FI", f"IMAGENAME eq {name}", "/NH"],
-            capture_output=True,
-            text=True,
-        ).stdout
+        result = subprocess.run(
+            ["pgrep", "-f", name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     except OSError:
         return False
-    return name.lower() in out.lower()
+    return result.returncode == 0
+
+
+def _can_stop(name):
+    if sys.platform == "win32":
+        return True  # taskkill ships with Windows
+    return shutil.which("pkill") is not None
+
+
+def _stop(name):
+    """Force-terminate every process matching ``name``. Best effort."""
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/IM", name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        subprocess.run(
+            ["pkill", "-f", name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 def stop_running(exe, wait_seconds=15.0):
     """Kill every running instance of the app so the debug port can bind."""
     name = os.path.basename(exe)
-    if not _tasklist(name):
+    if not _process_running(name):
+        return False
+    if not _can_stop(name):
+        warn(
+            f"{name} is running, but this platform/toolset cannot stop it "
+            "automatically; close it yourself, then re-run."
+        )
         return False
     log(f"stopping running {name} ...")
-    subprocess.run(
-        ["taskkill", "/F", "/T", "/IM", name],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    _stop(name)
     deadline = time.time() + wait_seconds
     while time.time() < deadline:
-        if not _tasklist(name):
+        if not _process_running(name):
             log(f"{name} stopped")
             return True
         time.sleep(0.25)
@@ -853,7 +927,7 @@ def main(argv):
         user_data_dir = None
         if o.isolated:
             user_data_dir = os.path.join(tempfile.gettempdir(), "cdp-inject-opencode-profile")
-        elif not restart and _tasklist(os.path.basename(exe)):
+        elif not restart and _process_running(os.path.basename(exe)):
             warn(
                 "an instance is already running: the new one will quit immediately "
                 "(single-instance lock). Use --restart to replace it, or --isolated "
@@ -863,7 +937,7 @@ def main(argv):
             warn(
                 "--restart is about to terminate OpenCode. If this script runs inside OpenCode "
                 "Desktop it will kill its own host/session; prefer running it from an external "
-                "terminal or use launch-debug.cmd instead."
+                "terminal or via the installed desktop shortcut instead."
             )
             stop_running(exe)
         launch_app(

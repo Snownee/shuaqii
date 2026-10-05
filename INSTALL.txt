@@ -1,0 +1,121 @@
+# INSTALL.txt
+
+To install or update shuaqii, tell your OpenCode agent one line:
+
+    Read https://raw.githubusercontent.com/Snownee/shuaqii/main/INSTALL.txt and follow its instructions to install shuaqii.
+
+That is the whole prompt. The agent reads this file and follows the
+instructions below. You do not need to run anything yourself until the very
+last step.
+
+------------------------------------------------------------------
+AGENT INSTRUCTIONS (read this section if you are the agent)
+------------------------------------------------------------------
+
+You are installing or updating shuaqii, a mod loader for OpenCode Desktop.
+Repository: https://github.com/Snownee/shuaqii
+
+READ BEFORE ACTING
+- Detect the OS first and follow only that OS's paths/commands below.
+- Do NOT run OpenCode (the `--launch` / `--restart` step) from inside this
+  session. shuaqii's injector restarts OpenCode to open a debug port, which
+  would kill the app hosting you. You only download, install, and create the
+  desktop shortcut. The user launches it later, from outside the app.
+- Do all downloading and extracting with a normal shell and filesystem. None
+  of it touches the running app.
+- The injector's CDP half is cross-platform; only the app auto-detection and
+  the shortcut/launcher differ per OS.
+
+The install directory (call it DEST throughout):
+- Windows: %LOCALAPPDATA%\shuaqii
+- macOS / Linux: $HOME/.local/share/shuaqii
+
+STEP 1 — Detect fresh install vs. update
+
+Windows (PowerShell):
+
+    $dest = Join-Path $env:LOCALAPPDATA 'shuaqii'
+    if (Test-Path "$dest\shuaqii.py") { $mode = 'update' } else { $mode = 'fresh' }
+
+macOS / Linux:
+
+    DEST="$HOME/.local/share/shuaqii"
+    if [ -f "$DEST/shuaqii.py" ]; then mode=update; else mode=fresh; fi
+
+- If DEST/shuaqii.py exists, this is an UPDATE. Note the version printed by
+  `<python> "$DEST/shuaqii.py" --version` (may be empty).
+- Otherwise it is a FRESH INSTALL.
+
+STEP 2 — Verify Python 3
+
+    python --version        # Windows
+    python3 --version       # macOS / Linux (fall back to `python`)
+
+If it is missing, tell the user to install Python 3 and stop. Do not continue.
+
+STEP 3 — Download and install (same for fresh install and update)
+
+Both OSes download the same zip; the tools differ. GitHub wraps the archive in
+a single top-level folder, which is why we pick it out before moving it.
+
+Windows (PowerShell):
+
+    $dest = Join-Path $env:LOCALAPPDATA 'shuaqii'
+    $zip  = 'https://codeload.github.com/Snownee/shuaqii/zip/refs/heads/main'
+    $tmp  = Join-Path $env:TEMP ("shuaqii-" + [guid]::NewGuid())
+    Invoke-WebRequest $zip -OutFile "$tmp.zip"
+    Expand-Archive "$tmp.zip" -DestinationPath $tmp
+    $root = Get-ChildItem $tmp -Directory | Select-Object -First 1
+    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+    Move-Item $root.FullName $dest
+    Remove-Item $tmp, "$tmp.zip" -Recurse -Force
+
+macOS / Linux (bash):
+
+    DEST="$HOME/.local/share/shuaqii"
+    ZIP='https://codeload.github.com/Snownee/shuaqii/zip/refs/heads/main'
+    TMP="$(mktemp -d)"
+    curl -fsSL "$ZIP" -o "$TMP.zip"
+    unzip -q "$TMP.zip" -d "$TMP"
+    root="$(find "$TMP" -maxdepth 1 -mindepth 1 -type d | head -n 1)"
+    rm -rf "$DEST"
+    mkdir -p "$(dirname "$DEST")"
+    mv "$root" "$DEST"
+    rm -rf "$TMP" "$TMP.zip"
+
+This always installs to DEST and replaces any previous copy, so an update is
+just a fresh install over the old one. The mods and launcher come along.
+
+STEP 4 — Verify the install runs
+
+    python "$dest\shuaqii.py" --version      # Windows
+    python3 "$DEST/shuaqii.py" --version     # macOS / Linux
+
+It must print a version. If it fails, report the error and stop.
+
+STEP 5 — Create the desktop shortcut
+
+Windows (PowerShell):
+
+    powershell -ExecutionPolicy Bypass -File "$dest\install\make-shortcut.ps1"
+
+macOS / Linux (bash):
+
+    bash "$DEST/install/make-shortcut.sh"
+
+This creates (or refreshes) a "shuaqii (OpenCode)" shortcut/launcher for the
+user: a desktop .lnk on Windows, a ~/Desktop .command on macOS, and a
+.desktop entry on Linux. Run it on both a fresh install and an update.
+
+STEP 6 — Report back, in the user's own language
+
+Reply in the same language the user wrote to you in (e.g. Chinese to a Chinese
+user). State whether this was an install or an update (and the old/new version
+for an update), then tell the user to fully quit OpenCode Desktop and open the
+"shuaqii (OpenCode)" shortcut to launch it. For example, in English:
+
+    Done — shuaqii installed (or: updated from X to Y).
+    Fully quit OpenCode Desktop, then open the "shuaqii (OpenCode)" shortcut
+    from your desktop to launch it with shuaqii loaded.
+
+You must NOT launch OpenCode yourself. The user launches it.
