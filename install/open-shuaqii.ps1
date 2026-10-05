@@ -51,12 +51,18 @@ if ($running) {
   $appArgs += '--restart'
 }
 
-# Run detached with stdout+stderr appended to the log file. Redirecting through
-# cmd gives us the append ('' 2>&1') that Start-Process alone cannot, and pythonw
-# + a hidden window means no console flashes.
+# Run detached with stdout+stderr appended to the log file. Start-Process cannot
+# append both streams to one file, and handing a quoted command line to
+# `cmd /c` via Start-Process mangles it, so write a small .cmd and launch that
+# hidden. pythonw.exe + -WindowStyle Hidden means no console flashes.
 $logLine = "[launcher] $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $($appArgs -join ' ')"
 Add-Content -LiteralPath $log -Value $logLine
 
-$quoted = ($appArgs | ForEach-Object { '"' + ($_ -replace '"', '""') + '"' }) -join ' '
-$cmdLine = '"{0}" {1} >> "{2}" 2>&1' -f $pythonPath, $quoted, $log
-Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $cmdLine -WorkingDirectory $dest -WindowStyle Hidden
+$runner = Join-Path $dest 'run-latest.cmd'
+$cmdLines = @(
+  '@echo off',
+  ('"{0}" {1} >> "{2}" 2>&1' -f $pythonPath, (($appArgs | ForEach-Object { '"' + $_ + '"' }) -join ' '), $log)
+)
+Set-Content -LiteralPath $runner -Value $cmdLines -Encoding ASCII
+
+Start-Process -FilePath $runner -WorkingDirectory $dest -WindowStyle Hidden
