@@ -48,9 +48,23 @@ running() {
   pgrep -f "[Oo]pen[Cc]ode" >/dev/null 2>&1
 }
 
-mode="--launch"
-if running; then
-  text="OpenCode is currently running.
+# TCP probe for the debug port. Uses bash's /dev/tcp when available, else nc.
+port_open() {
+  local p="${1:-9222}"
+  if (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null; then
+    exec 3>&- 3<&- 2>/dev/null || true
+    return 0
+  fi
+  command -v nc >/dev/null 2>&1 && nc -z 127.0.0.1 "$p" >/dev/null 2>&1
+}
+
+# If the debug port is already open, OpenCode is running (and likely injected):
+# just attach. Otherwise it is not running (--launch) or running without a port,
+# which needs a restart the user must agree to.
+if port_open 9222; then
+  mode="--live"
+elif running; then
+  text="OpenCode is currently running without a debug port.
 
 shuaqii needs to restart it so it can attach. Unsaved state may be lost.
 
@@ -69,6 +83,8 @@ Restart OpenCode now?"
     exit 0
   fi
   mode="--launch --restart"
+else
+  mode="--launch"
 fi
 
 echo "[launcher] $(date) $mode" >> "$LOG"

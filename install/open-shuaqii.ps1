@@ -39,16 +39,38 @@ if (-not $pythonPath) {
   exit 1
 }
 
-# If OpenCode is already running it must be restarted so the debug port can bind.
-$appArgs = @($app, '--launch')
-$running = @(Get-Process -Name 'OpenCode' -ErrorAction SilentlyContinue).Count -gt 0
-if ($running) {
-  $answer = Show-Message ("OpenCode is currently running.`n`n" +
-    "shuaqii needs to restart it so it can attach.`n" +
-    "Unsaved state may be lost.`n`n" +
-    "Restart OpenCode now?") 'shuaqii' 'YesNo'
-  if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { exit 0 }
-  $appArgs += '--restart'
+# Decide how to reach OpenCode:
+#   debug port already open  -> it is running (and likely injected): just attach
+#   port closed + process up -> it is running without a port: offer a restart
+#   no process               -> launch it fresh
+$port = 9222
+function Test-Port([string]$host_, [int]$p) {
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $iar = $client.BeginConnect($host_, $p, $null, $null)
+    if (-not $iar.AsyncWaitHandle.WaitOne(500)) { return $false }
+    $client.EndConnect($iar)
+    return $true
+  } catch {
+    return $false
+  } finally {
+    $client.Close()
+  }
+}
+
+if (Test-Port '127.0.0.1' $port) {
+  $appArgs = @($app, '--live')
+} else {
+  $appArgs = @($app, '--launch')
+  $running = @(Get-Process -Name 'OpenCode' -ErrorAction SilentlyContinue).Count -gt 0
+  if ($running) {
+    $answer = Show-Message ("OpenCode is currently running without a debug port.`n`n" +
+      "shuaqii needs to restart it so it can attach.`n" +
+      "Unsaved state may be lost.`n`n" +
+      "Restart OpenCode now?") 'shuaqii' 'YesNo'
+    if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { exit 0 }
+    $appArgs += '--restart'
+  }
 }
 
 # Run detached with stdout+stderr appended to the log file. Start-Process cannot

@@ -11,23 +11,28 @@ if not exist "%APP%" (
   exit /b 1
 )
 
-rem Also tee output to a log file, so a hidden launch (open-shuaqii.vbs) and a
-rem visible one leave the same record.
+rem Also tee output to a log file, so a hidden launch and a visible one leave
+rem the same record.
 echo [launcher] %DATE% %TIME% >> "%LOG%"
 
-rem If OpenCode is already running without a debug port, the injector cannot
-rem attach to it (single-instance lock). Offer to restart it, which is why this
-rem launcher exists: only the user, double-clicking here, agrees to that.
-tasklist /FI "IMAGENAME eq OpenCode.exe" 2>nul | find /I "OpenCode.exe" >nul
+rem Decide how to reach OpenCode: if the debug port is already open, just attach
+rem (--live); otherwise it is either not running (--launch) or running without a
+rem port, which needs a restart the user must agree to.
+powershell -NoProfile -Command "try { (New-Object Net.Sockets.TcpClient).Connect('127.0.0.1', 9222); exit 0 } catch { exit 1 }"
 if %ERRORLEVEL%==0 (
-  echo OpenCode is currently running without a debug port.
-  echo shuaqii needs to restart it so it can attach.
-  echo Unsaved state may be lost.
-  choice /C YN /M "Restart OpenCode now"
-  if errorlevel 2 exit /b 0
-  python "%APP%" --launch --restart
+  python "%APP%" --live
 ) else (
-  python "%APP%" --launch
+  tasklist /FI "IMAGENAME eq OpenCode.exe" 2>nul | find /I "OpenCode.exe" >nul
+  if %ERRORLEVEL%==0 (
+    echo OpenCode is currently running without a debug port.
+    echo shuaqii needs to restart it so it can attach.
+    echo Unsaved state may be lost.
+    choice /C YN /M "Restart OpenCode now"
+    if errorlevel 2 exit /b 0
+    python "%APP%" --launch --restart
+  ) else (
+    python "%APP%" --launch
+  )
 )
 
 echo.
