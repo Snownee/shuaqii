@@ -4,13 +4,14 @@
 # The Windows twin is install/make-shortcut.ps1.
 set -eu
 
-# Where the installer put the repo (must match INSTALL.txt / open-shuaqii.sh).
-DEST="${SHUAQII_DEST:-$HOME/.local/share/shuaqii}"
-LAUNCHER="$DEST/open-shuaqii.sh"
+# The launcher sits next to this script, so resolve it from here rather than
+# assuming the repo root.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LAUNCHER="$HERE/open-shuaqii.sh"
 NAME="shuaqii (OpenCode)"
 
 if [ ! -f "$LAUNCHER" ]; then
-  echo "open-shuaqii.sh not found at $LAUNCHER; is the install complete?" >&2
+  echo "open-shuaqii.sh not found next to this script; is the install complete?" >&2
   exit 1
 fi
 chmod +x "$LAUNCHER"

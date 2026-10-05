@@ -2,11 +2,15 @@
 # Run by the installer (see INSTALL.txt); safe to run again to refresh it.
 $ErrorActionPreference = 'Stop'
 
-$dest = Join-Path $env:LOCALAPPDATA 'shuaqii'
-$cmd  = Join-Path $dest 'open-shuaqii.cmd'
+# The launcher sits next to this script, so resolve it from here rather than
+# assuming the repo root. The install root is the repo directory, two levels up
+# (install/make-shortcut.ps1 -> repo).
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$cmd  = Join-Path $here 'open-shuaqii.cmd'
+$dest = Split-Path -Parent $here
 
 if (-not (Test-Path -LiteralPath $cmd)) {
-  throw "open-shuaqii.cmd not found in $dest; is the install complete?"
+  throw "open-shuaqii.cmd not found next to this script; is the install complete?"
 }
 
 $desktop = [Environment]::GetFolderPath('Desktop')
