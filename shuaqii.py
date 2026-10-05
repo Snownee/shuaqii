@@ -3,7 +3,7 @@
 
 Pure standard library, no pip installs. It talks to an app's remote debugging
 endpoint (the one you get from ``--remote-debugging-port=<n>``), attaches to
-every renderer target and evaluates your script inside it. It can also launch
+every renderer target and evaluates your mod inside it. It can also launch
 the app for you (auto-detects OpenCode Desktop on Windows).
 
 Ways to change the injected code at any time
@@ -48,16 +48,16 @@ __version__ = "0.0.1"
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-# Injected before every script run so the renderer-side overlay can label itself.
+# Injected before every mod run so the renderer-side overlay can label itself.
 # ``injected`` doubles as a liveness marker: it lives only as long as the page's
 # context, so when it disappears (the app reloaded the renderer) we know to re-inject.
-# ``pass`` is a fresh id per injection pass: scripts stamp their registry entry with
+# ``pass`` is a fresh id per injection pass: mods stamp their registry entry with
 # it (see scripts/core.js), and the sweep below evicts entries left behind by an
-# earlier pass (e.g. a script file that was just deleted from the scripts dir).
+# earlier pass (e.g. a mod file that was just deleted from the mods dir).
 _pass_seq = 0
 # Each injector run gets its own id so its pass values never collide with a previous run's:
 # the renderer/main registries persist across runs, and sweep() must be able to tell a
-# script injected by *this* run from a stale one left by an earlier one.
+# mod injected by *this* run from a stale one left by an earlier one.
 _RUN_ID = os.urandom(4).hex()
 
 
@@ -77,7 +77,7 @@ def sweep_expression(pass_id):
 
 
 # Main-process equivalents. There is no core.js/registry in the main process, so a main
-# script keeps its control object (with a ``dispose``) on ``globalThis.__shuaqiiMain[id]``
+# mod keeps its control object (with a ``dispose``) on ``globalThis.__shuaqiiMain[id]``
 # and stamps it with the pass from ``globalThis.__shuaqii``. The sweep then disposes any
 # entry left over from an earlier pass — the same "deleting the file unmounts it" behaviour
 # the renderer gets from __sqScripts.sweep.
@@ -112,7 +112,7 @@ def main_sweep_expression():
 LIVENESS_PROBE = "(window.__shuaqii && window.__shuaqii.injected) === true"
 
 # Once we have talked to the debug port, losing it for this long means the target
-# app has exited (or crashed): stop polling and end the script instead of warning
+# app has exited (or crashed): stop polling and end the mod instead of warning
 # forever about an unreachable endpoint.
 PORT_LOST_GRACE = 3.0
 
@@ -123,15 +123,15 @@ DEFAULT_OPENCODE_PATHS = [
     os.path.expandvars(r"%PROGRAMFILES%\OpenCode\OpenCode.exe"),
 ]
 
-# Where scripts are auto-loaded from when neither -s nor -e is given.
+# Where mods are auto-loaded from when neither -s nor -e is given.
 SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
 
 # The directory this injector (and scripts/) lives in. Passed to the renderer as
-# window.__shuaqii.projectDir so scripts can resolve repo-relative paths (e.g.
+# window.__shuaqii.projectDir so mods can resolve repo-relative paths (e.g.
 # theme-diy/bg) without hard-coding an absolute path.
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Comment marker that opts a script into being injected into the app's Electron main
+# Comment marker that opts a mod into being injected into the app's Electron main
 # process as well as the renderer (a plain Node context, no ``window``), through the Node
 # inspector opened by ``--inspect=<port>``. One file can then carry both halves and pick
 # its branch based on whether ``window`` exists. See scripts/keep-awake.js.
@@ -328,14 +328,14 @@ class CDP:
             "allowUnsafeEvalBlockedByCSP": True,
         }
         # Node's inspector only defines ``require`` in the console-like scope when the
-        # command line API is enabled; main-process scripts rely on it to load electron.
+        # command line API is enabled; main-process mods rely on it to load electron.
         if command_line_api:
             params["includeCommandLineAPI"] = True
         return self.send("Runtime.evaluate", params)
 
 
 # --------------------------------------------------------------------------- #
-# script sources (with hot-reload support)
+# mod sources (with hot-reload support)
 # --------------------------------------------------------------------------- #
 class Script:
     def __init__(self, kind, value):
@@ -477,7 +477,7 @@ def inject_scripts(session, scripts):
             report_exception(script.name, session.label, details)
         else:
             log(f"injected {script.name} -> {session.label}")
-    # Registry entries not refreshed by this pass belong to scripts that are no
+    # Registry entries not refreshed by this pass belong to mods that are no
     # longer being injected (e.g. a file deleted from scripts/): unmount them so
     # their overlay lines and timers go away instead of lingering forever.
     try:
@@ -502,11 +502,11 @@ def is_alive(session):
 
 
 class MainInjector:
-    """Injects scripts into an Electron app's main process over its Node inspect port.
+    """Injects mods into an Electron app's main process over its Node inspect port.
 
     The main process is a plain Node context (no ``window`` and no overlay/registry),
     reached through the inspector that ``--inspect=<port>`` opens; its target appears in
-    the debug-target list as ``type: "node"``. Scripts are evaluated directly. A missing
+    the debug-target list as ``type: "node"``. Mods are evaluated directly. A missing
     inspect port is a soft failure: we warn once and keep going, so a renderer-only setup
     still works.
     """
@@ -526,7 +526,7 @@ class MainInjector:
         raise ConnectionError("no node target on the inspect port")
 
     def ensure(self):
-        """Connect if needed and inject the scripts. True once the inspector is reached."""
+        """Connect if needed and inject the mods. True once the inspector is reached."""
         if self.session is not None:
             return True
         try:
@@ -560,7 +560,7 @@ class MainInjector:
         if self.session is None:
             return
         # Entries from earlier passes belong to files no longer being injected (deleted
-        # marker script): dispose them so their timers/servers go away.
+        # marker mod): dispose them so their timers/servers go away.
         try:
             result = self.session.evaluate(
                 main_sweep_expression(), return_by_value=True, command_line_api=True
@@ -725,7 +725,7 @@ class _AppendOrdered(argparse.Action):
 
 
 class _AppendMain(argparse.Action):
-    """Collect --main values (main-process scripts) in command-line order."""
+    """Collect --main values (main-process mods) in command-line order."""
 
     def __call__(self, parser, namespace, values, option_string=None):
         specs = getattr(namespace, "main_specs", None)
@@ -810,7 +810,7 @@ def main(argv):
     restart = o.restart
     launch = o.launch
 
-    # Auto-load picks up scripts from the scripts dir and watches it. It only implies
+    # Auto-load picks up mods from the mods dir and watches it. It only implies
     # --launch/--restart for a truly bare `python shuaqii.py` (no CLI args at all), the
     # "just make it work" case. When the user passed any flag (e.g. `shuaqii.py -i`),
     # forcing a restart would kill a running app — including the host of the current
@@ -823,7 +823,7 @@ def main(argv):
             launch = "__auto__"
         log(f"will auto-load renderer scripts from {auto_dir}")
 
-    # Whether any script will also be sent to the main process (either explicitly via
+    # Whether any mod will also be sent to the main process (either explicitly via
     # --main, or opted in with the "@shuaqii:main" marker). Needed before launch so we can
     # pass --inspect when it is.
     def scripts_opt_into_main():
@@ -883,14 +883,14 @@ def main(argv):
             if not watch:
                 return 1
 
-    # Load scripts only after the app has been launched and its debug port is up,
-    # so reading/parsing the script files never delays startup.
+    # Load mods only after the app has been launched and its debug port is up,
+    # so reading/parsing the mod files never delays startup.
     if auto_dir is not None:
         scripts = [Script("file", path) for path in ordered_scripts(auto_dir)]
     else:
         scripts = [Script(kind, value) for kind, value in o.specs]
 
-    # Main-process scripts are the renderer scripts that opted in with the marker, plus
+    # Main-process mods are the renderer mods that opted in with the marker, plus
     # any explicit --main files (main-only).
     main_explicit = [Script("file", path) for path in o.main_specs]
 
@@ -1046,11 +1046,11 @@ def main(argv):
 
                 wanted_main = build_main_scripts()
                 if main_injector is None and wanted_main:
-                    # A marker script appeared at runtime: open the main channel now.
+                    # A marker mod appeared at runtime: open the main channel now.
                     main_injector = MainInjector(o.host, o.inspect_port, wanted_main)
                     activity = True
                 if main_injector is not None:
-                    # Marker scripts ride along with the renderer set (rebuilt above when
+                    # Marker mods ride along with the renderer set (rebuilt above when
                     # `changed`); explicit --main files are tracked here on their own.
                     main_changed = changed
                     for i, script in enumerate(main_explicit):

@@ -1,5 +1,5 @@
 // Turns the overlay's "shuaqii <version>" title line into a button that opens a
-// modal listing every script registered in scripts/core.js's registry
+// modal listing every mod registered in scripts/core.js's registry
 // (window.__sqScripts). Each row has an enable/disable checkbox; plugins add
 // their own row buttons with __sqScripts.addAction(id, { label, title, onClick }).
 // Requires scripts/core.js to be injected first.
@@ -10,7 +10,7 @@
 // open; Esc, a backdrop click, or the x button close it. core.js owns the version
 // line but not this UI, so this file binds the click itself and installs a small
 // <style> that overrides core's inline `pointer-events: none` with !important, so
-// the line stays clickable even if core.js is re-injected on its own. This script
+// the line stays clickable even if core.js is re-injected on its own. This mod
 // registers itself as locked, so it can never be disabled from its own list.
 
 (async () => {
@@ -33,7 +33,7 @@
   let dialog = null;
   let rowsHost = null;
   let unsubscribeChange = null;
-  let showRequired = false; // locked (always-on) scripts are hidden until this is checked
+  let showRequired = false; // locked (always-on) mods are hidden until this is checked
 
   function ensureStyle() {
     let style = document.getElementById(STYLE_ID);
@@ -266,7 +266,7 @@
     const head = document.createElement("div");
     head.className = "ml-head";
     const title = document.createElement("span");
-    title.textContent = `Scripts`;
+    title.textContent = `Mods`;
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "ml-close";
@@ -281,7 +281,7 @@
 
     const filter = document.createElement("label");
     filter.className = "ml-filter";
-    filter.title = "also list the always-on (required) scripts";
+    filter.title = "also list the always-on (required) mods";
     const filterBox = document.createElement("input");
     filterBox.type = "checkbox";
     filterBox.checked = showRequired;
@@ -290,7 +290,7 @@
       renderRows();
     });
     const filterText = document.createElement("span");
-    filterText.textContent = "Show required scripts";
+    filterText.textContent = "Show required mods";
     filter.append(filterBox, filterText);
     panel.appendChild(filter);
 
@@ -362,7 +362,7 @@
   reg.register(ID, {
     label: "Mod List",
     version: "0.0.1",
-    desc: "This dialog: view all your scripts.",
+    desc: "This dialog: view all your mods.",
     locked: true,
     mount,
     unmount,

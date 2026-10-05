@@ -1,9 +1,9 @@
 ---
 name: inject-script
-description: Use when adding or editing an OpenCode Desktop injection script for this repo's CDP toolchain (shuaqii.py + scripts/core.js) — registering overlay lines, reading session/message state from the bundled server, detecting running/idle, or sending messages. Triggers: "new inject script", "新增脚本", "写个脚本注入", "overlay", "session-timer", "retry", "shuaqii".
+description: Use when adding or editing an OpenCode Desktop injection mod for this repo's CDP toolchain (shuaqii.py + scripts/core.js) — registering overlay lines, reading session/message state from the bundled server, detecting running/idle, or sending messages. Triggers: "new inject mod", "新增脚本", "写个脚本注入", "overlay", "session-timer", "retry", "shuaqii".
 ---
 
-# Writing an injection script for `shuaqii`
+# Writing an injection mod for `shuaqii`
 
 This repo injects JavaScript into the **running OpenCode Desktop renderer** over the
 Chrome DevTools Protocol.
@@ -12,22 +12,22 @@ Chrome DevTools Protocol.
   `--live` (hot reload on save), `--launch [EXE]` / `--restart`.
 - `scripts/core.js` — owns the shared bottom-right panel (`window.__sqOverlay`), the
   shared services (`window.__sq`: server/auth, active session, running detection,
-  message loading, one ticker), **and the script registry (`window.__sqScripts`)**.
-  A feature script registers with it instead of self-managing, subscribes to `__sq`
+  message loading, one ticker), **and the mod registry (`window.__sqScripts`)**.
+  A feature mod registers with it instead of self-managing, subscribes to `__sq`
   instead of re-initializing, and usually pushes a line into the panel rather than
   drawing its own UI.
 - `scripts/mod-list.js` — renders the registry: clicking the overlay's
-  `shuaqii <version>` title opens a modal where the user enables/disables scripts.
+  `shuaqii <version>` title opens a modal where the user enables/disables mods.
 - `scripts/session-timer.js`, `scripts/retry.js`, `scripts/message-jump.js`,
   `scripts/theme-diy.js`, `scripts/queued-message.js` — reference implementations to
   copy from.
 
-Scripts run inside the renderer, whose URL is `oc://renderer/index.html`.
+Mods run inside the renderer, whose URL is `oc://renderer/index.html`.
 
 ## Workflow
 
 1. Create `scripts/<name>.js`.
-2. Inject **`scripts/core.js` first**, then your script (CLI order is preserved):
+2. Inject **`scripts/core.js` first**, then your mod (CLI order is preserved):
    ```powershell
    python shuaqii.py --live -s scripts/core.js -s scripts/<name>.js
    ```
@@ -56,12 +56,12 @@ window.__sqOverlay.remove(id);
 - Any injected element can opt into the same tooltip with `data-sq-tip="…"`; give that
   element `pointer-events: auto` so the pointer can reach it (used by `info-hud.js` rows).
 
-## Script registry (register yourself)
+## Mod registry (register yourself)
 
-Feature scripts don't manage their own lifetime. They `register()` with
+Feature mods don't manage their own lifetime. They `register()` with
 `scripts/core.js`, which owns the enabled/disabled state (persisted to
 `localStorage["shuaqii.mods"]` as `{ "<id>": { "enabled": false } }`) and calls your
-lifecycle hooks. `scripts/mod-list.js` lists every registered script behind the
+lifecycle hooks. `scripts/mod-list.js` lists every registered mod behind the
 overlay's `shuaqii <version>` title, where the user toggles them on/off.
 
 ```js
@@ -77,9 +77,9 @@ window.__sqScripts.register(id, {
 });
 ```
 
-- `enabled` is only the **first-load** default. Once the user toggles the script in
+- `enabled` is only the **first-load** default. Once the user toggles the mod in
   mod-list, the persisted choice overrides it (so changing the default later won't
-  re-enable a script the user turned off).
+  re-enable a mod the user turned off).
 
 - `register` is itself idempotent: on re-injection it calls the previous instance's
   `unmount()` first, so you **don't** call `dispose()` at the top of your file.
@@ -88,11 +88,11 @@ window.__sqScripts.register(id, {
 - Each injection pass carries a fresh id (`window.__shuaqii.pass`) that `register`
   stamps onto your entry; after a pass `shuaqii.py` calls `__sqScripts.sweep(pass)` to
   unmount entries from earlier passes. **Deleting `scripts/<name>.js` therefore tears
-  your script down automatically** — its overlay line and ticker disappear on the next
+  your mod down automatically** — its overlay line and ticker disappear on the next
   reload without you doing anything.
 - Plugins can add a row button later: `__sqScripts.addAction(id, { label, onClick })`.
 
-## Script skeleton (idempotent, hot-reload safe)
+## Mod skeleton (idempotent, hot-reload safe)
 
 ```js
 (async () => {
@@ -147,14 +147,14 @@ Notes:
 
 ## Renderer APIs you can rely on
 
-`scripts/core.js` resolves these once and exposes them as `window.__sq`; feature scripts
+`scripts/core.js` resolves these once and exposes them as `window.__sq`; feature mods
 should use that instead of calling `window.api` themselves:
 
 - `await __sq.ready` — resolves once `server` / `auth` / `windowID` are set
 - `__sq.activeSessionId()` — active session id (short-cached), or `null`
 - `__sq.isRunning()` — the composer shows the stop icon
 - `__sq.messages(id, maxAge?)` — session message list (`{ info, parts }[]`, or `null` on
-  failure); short-TTL cache + in-flight dedup shared by every script
+  failure); short-TTL cache + in-flight dedup shared by every mod
 - `__sq.every(ms, fn)` — subscribe to the one shared ticker; returns an unsubscribe fn
 
 The raw APIs those helpers wrap (rarely needed directly):
@@ -197,9 +197,9 @@ const windowID = await window.api.getWindowID(); // ⚠ returns a Promise — aw
 All requests need the `Authorization` header; the sidecar uses HTTP Basic with a random
 password regenerated every launch.
 
-## Main-process scripts
+## Main-process mods
 
-Renderer scripts can't reach Electron's main-process APIs (no `ipcRenderer`/`require` in
+Renderer mods can't reach Electron's main-process APIs (no `ipcRenderer`/`require` in
 the page, and the app's permission allow-list blocks things like `wakeLock`). To run code
 in the main process, put the marker
 
@@ -218,7 +218,7 @@ file branches on where it is, so one file holds both halves:
 })();
 ```
 
-Scripts that are main-only can be injected explicitly with `--main <file>` instead.
+Mods that are main-only can be injected explicitly with `--main <file>` instead.
 
 - The main process is a plain Node context: **no `window`** (use `globalThis`), no overlay,
   no registry, no `__sq`. `require("electron")` works (shuaqii evaluates with
@@ -247,7 +247,7 @@ Scripts that are main-only can be injected explicitly with `--main <file>` inste
   use the bridge for event-style state that changes on user action.
 - Register a main half on `globalThis.__shuaqiiMain[id]` with a `dispose()` and a `pass`
   copied from `globalThis.__shuaqii.pass` (shuaqii sets that per injection pass). Its sweep
-  then disposes entries from earlier passes, so deleting a marker script unmounts its main
+  then disposes entries from earlier passes, so deleting a marker mod unmounts its main
   half too — mirroring `__sqScripts.sweep` on the renderer. Passes include a per-run id, so
   they never collide across separate injector runs.
 - The shared ticker is *driven from the main process* (`scripts/main-clock.js`): its main

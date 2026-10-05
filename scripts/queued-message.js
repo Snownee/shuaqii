@@ -175,7 +175,7 @@
     return target instanceof Element ? target.closest(SUBMIT_SELECTOR) : null;
   }
 
-  // Session helpers live in core.js (window.__sq) so every script shares one
+  // Session helpers live in core.js (window.__sq) so every mod shares one
   // implementation: currentSessionId is uncached, sessionBusy is page-independent, and
   // lastUserInfo feeds the agent/model passthrough.
   const currentSessionId = () => sq.currentSessionId();
@@ -380,7 +380,7 @@
   }
 
   // ---- toasts ---------------------------------------------------------------
-  // The toast UI lives in core.js (window.__sq.toast); this script only supplies its
+  // The toast UI lives in core.js (window.__sq.toast); this mod only supplies its
   // text and a position lower than the default.
   function showToast(text) {
     if (typeof sq.toast !== "function") return null;

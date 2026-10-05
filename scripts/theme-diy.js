@@ -47,7 +47,7 @@
   const DIALOG_ID = "sq-themediy-backdrop";
   const STORE_KEY = "shuaqii.theme-diy";
   const BG_DIR = "theme-diy/bg";
-  // The repo directory shuaqii.py reports (via core.js). Scripts live there, so
+  // The repo directory shuaqii.py reports (via core.js). Mods live there, so
   // theme-diy/bg resolves without hard-coding a machine-specific absolute path.
   const DEFAULT_ROOT = sq.projectDir || "";
   const MAX_PAGES = 50;

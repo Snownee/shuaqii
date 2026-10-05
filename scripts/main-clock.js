@@ -1,4 +1,4 @@
-// Drives the shared script ticker (window.__sq) from the Electron main process.
+// Drives the shared mod ticker (window.__sq) from the Electron main process.
 //
 //   python shuaqii.py --launch --restart
 //

@@ -1,9 +1,9 @@
-// Shared bottom-right overlay panel for OpenCode Desktop injection scripts.
+// Shared bottom-right overlay panel for OpenCode Desktop injection mods.
 //
 //   python shuaqii.py --live -s scripts/core.js -s scripts/session-timer.js
 //
 // It creates a single fixed panel in the bottom-right corner and exposes an API any
-// later script can push lines into:
+// later mod can push lines into:
 //
 //   window.__sqOverlay.set("my-id", "some text", { color: "#4ade80", title: "tooltip" })
 //   window.__sqOverlay.remove("my-id")
@@ -15,11 +15,11 @@
 // Any injected element can opt in independently by setting data-sq-tip="…" (the
 // element needs pointer-events: auto so the pointer can reach it).
 //
-// Items are keyed by id, so re-injecting a script replaces its line instead of
-// stacking duplicates. Lines are ordered by the owning script's optional registry
+// Items are keyed by id, so re-injecting a mod replaces its line instead of
+// stacking duplicates. Lines are ordered by the owning mod's optional registry
 // `order`, then by id, so reloading always produces the same order. A header line
 // showing "shuaqii <version>" is kept above every item; the version comes from
-// window.__shuaqii.version, which shuaqii.py injects before each script run.
+// window.__shuaqii.version, which shuaqii.py injects before each mod run.
 //
 // Hot-reload safe: re-injecting this file re-applies PANEL_STYLE/itemStyle() to the
 // existing panel and items (keeping the same registry), so style edits show up on
@@ -27,9 +27,9 @@
 //
 // It also owns the shared services under window.__sq (server/auth, active session,
 // message loading, running detection, one ticker, and the toast notifier) that the
-// other scripts subscribe to instead of each doing their own init + setInterval + fetch.
+// other mods subscribe to instead of each doing their own init + setInterval + fetch.
 //
-// Any script can pop a transient, dismissible notice with the shared toast system:
+// Any mod can pop a transient, dismissible notice with the shared toast system:
 //
 //   __sq.toast("Saved")                                  // plain text, top-right
 //   __sq.toast("Line <br> two", { html: true, position: "center-right" })
@@ -278,7 +278,7 @@
     }
   }
 
-  // Lines are stacked deterministically: by the owning script's optional registry
+  // Lines are stacked deterministically: by the owning mod's optional registry
   // `order`, then by id (alphabetical) — not by whichever async render landed first, and
   // not by registry insertion order (which varies with async startup). Runs whenever a
   // line is (re)added, so reloading always produces the same order. The version line
@@ -314,7 +314,7 @@
   window.__sqOverlay = overlay;
 
   // -------------------------------------------------------------------------
-  // Shared services (window.__sq), created once and reused by every script so
+  // Shared services (window.__sq), created once and reused by every mod so
   // they don't each re-init the server, re-read localStorage, re-query the DOM,
   // or run their own timer:
   //
@@ -453,7 +453,7 @@
   // refreshes it on an already-running __sq.
   sq.projectDir = (window.__shuaqii && window.__shuaqii.projectDir) || null;
 
-  // Shared session-message loader: one HTTP request per session serves every script.
+  // Shared session-message loader: one HTTP request per session serves every mod.
   // A short TTL (per-caller `maxAge`, default 1s) absorbs polling overlap, and an
   // in-flight map dedupes concurrent callers. Resolves to the `{ info, parts }[]`
   // array, or null when the server/auth/id is unavailable or the request fails.
@@ -688,16 +688,16 @@
   };
 
   // -------------------------------------------------------------------------
-  // Script registry (window.__sqScripts). Feature scripts register their label
+  // Mod registry (window.__sqScripts). Feature mods register their label
   // plus lifecycle hooks; core owns the enabled/disabled state and decides
   // whether to mount, and scripts/mod-list.js renders the list. The registry
   // (entries + subscribers) is reused across injections so editing this file
-  // refreshes the methods without dropping already-registered scripts.
+  // refreshes the methods without dropping already-registered mods.
   //
   //   register(id, { label, version?, desc?, order?, locked?, enabled?, actions?, mount?, unmount? })
   //     enabled is the default on first load (absent = true); a user toggle in
   //     mod-list persists and overrides it from then on.
-  //   enabled(id)            -> whether the script is currently enabled
+  //   enabled(id)            -> whether the mod is currently enabled
   //   setEnabled(id, bool)   -> mount/unmount + persist to localStorage
   //   addAction(id, action)  -> { label, title?, onClick, color? }
   //   onChange(fn)           -> subscribe to registry changes; returns unsubscribe
@@ -713,7 +713,7 @@
 
   // shuaqii.py stamps window.__shuaqii.pass with a fresh id before each injection
   // pass; register() records it so sweep() can evict entries from earlier passes
-  // (i.e. script files that were deleted from scripts/).
+  // (i.e. mod files that were deleted from scripts/).
   function currentPass() {
     return window.__shuaqii ? window.__shuaqii.pass : undefined;
   }
@@ -736,7 +736,7 @@
     }
   }
 
-  // The default a script declares at registration (absent = enabled), used until
+  // The default a mod declares at registration (absent = enabled), used until
   // the user flips it in mod-list; after that the persisted value wins.
   function defaultModEnabled(id) {
     const entry = registry.entries.get(id);

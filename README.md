@@ -1,11 +1,11 @@
 # shuaqii
 
-A script loader for OpenCode Desktop, plus a collection of built-in scripts.
+A mod loader for OpenCode Desktop, plus a collection of built-in mods.
 
 `shuaqii.py` is a dependency-free Chrome DevTools Protocol (CDP) client. It attaches to
 the OpenCode Desktop renderer, injects your JavaScript into it, and keeps it there —
 watching your files and re-injecting on every save, and surviving page reloads. The
-`scripts/` directory holds a set of small scripts that run on top of it.
+`scripts/` directory holds a set of small mods that run on top of it.
 
 ## What it is
 
@@ -13,8 +13,8 @@ watching your files and re-injecting on every save, and surviving page reloads. 
   Desktop with a remote debugging port, attach to every injectable renderer target, run
   your code in each, and re-inject automatically when the page reloads or a file changes.
   It works on any Electron app you can start with `--remote-debugging-port=<n>`.
-- **The built-in scripts** — `scripts/*.js`, a set of scripts (session timer, auto retry,
-  delayed queue, info HUD, message jump, theme DIY, keep awake, paste fix, and the script
+- **The built-in mods** — `scripts/*.js`, a set of mods (session timer, auto retry,
+  delayed queue, info HUD, message jump, theme DIY, keep awake, paste fix, and the mod
   list itself) built on a shared bottom-right overlay and a shared service layer,
   `scripts/core.js`.
 
@@ -42,7 +42,7 @@ With no arguments, and `.js` files present in `scripts/`, a bare run:
 3. watches `scripts/` and re-injects when a file changes, is added, or is removed.
 
 When the app comes up you get a bottom-right overlay headed `shuaqii <version>`. Click
-that header to open the **script list** and turn individual scripts on or off (the choice is
+that header to open the **mod list** and turn individual mods on or off (the choice is
 remembered in `localStorage`).
 
 > **Do not run the restarting form from inside OpenCode Desktop.** `python shuaqii.py`
@@ -59,9 +59,9 @@ python shuaqii.py --live     # auto-load + watch scripts/, no relaunch
 python shuaqii.py --list     # list debug targets ("*" = injectable), then exit
 ```
 
-## Built-in scripts
+## Built-in mods
 
-These live in `scripts/` and are managed from the overlay's script list:
+These live in `scripts/` and are managed from the overlay's mod list:
 
 | Mod                | What it does                                                                              | Default   |
 | ------------------ | ----------------------------------------------------------------------------------------- | --------- |
@@ -79,9 +79,9 @@ These live in `scripts/` and are managed from the overlay's script list:
 ![](demo-pics/2.png)
 ![](demo-pics/3.png)
 
-## Writing your own script
+## Writing your own mod
 
-Drop a file in `scripts/` and it is picked up by auto-load. Scripts run inside the
+Drop a file in `scripts/` and it is picked up by auto-load. Mods run inside the
 renderer's page context, zero dependencies, as an async IIFE. Register with `core.js`
 instead of managing your own lifetime:
 
@@ -124,10 +124,10 @@ For the full API — overlay, registry, renderer services, message/error shapes,
 live-app verification workflow — see
 [`.opencode/skills/inject-script/SKILL.md`](.opencode/skills/inject-script/SKILL.md).
 
-### Main-process scripts
+### Main-process mods
 
 A few things only exist in Electron's main process, not the renderer — `powerSaveBlocker`
-(used by **Keep Awake**) is why a script can opt into it. Put the marker
+(used by **Keep Awake**) is why a mod can opt into it. Put the marker
 
 ```js
 // @shuaqii:main
@@ -144,7 +144,7 @@ is running, so one file can hold both halves:
 })();
 ```
 
-Main scripts run in a plain Node context: there is no `window` (use `globalThis`), no
+Main mods run in a plain Node context: there is no `window` (use `globalThis`), no
 overlay, and no registry, but `require("electron")` is available. To hand data back to the
 renderer, call `webContents.executeJavaScript`; **Keep Awake** publishes its state as
 `window.__shuaqiiMain["keep-awake"]` for its own renderer half to display.
@@ -200,8 +200,8 @@ If neither `-s` nor `-e` is given, every `.js` in `scripts/` is loaded automatic
 1. **Attach** — queries `http://<host>:<port>/json/list` and opens a WebSocket to each
    injectable `page`/`webview` target, skipping `devtools://`, `chrome://`,
    `chrome-extension://`, `chrome-untrusted://`, `edge://`, and `about:` URLs.
-2. **Inject** — evaluates a version bootstrap, then each script in order via
-   `Runtime.evaluate`. Exceptions from a script are logged, not fatal.
+2. **Inject** — evaluates a version bootstrap, then each mod in order via
+   `Runtime.evaluate`. Exceptions from a mod are logged, not fatal.
 3. **Keep it there** — the bootstrap sets `window.__shuaqii.injected`, which lives only as
    long as the page context. A watching injector probes that marker and re-injects into any
    target whose context was replaced (e.g. the app's Reload).
@@ -227,8 +227,8 @@ If neither `-s` nor `-e` is given, every `.js` in `scripts/` is loaded automatic
 
 ```text
 shuaqii.py                     the CDP injector (stdlib only)
-scripts/                       bundled scripts, auto-loaded
-  core.js                      overlay + shared services + script registry
+scripts/                       bundled mods, auto-loaded
+  core.js                      overlay + shared services + mod registry
   mod-list.js                  enable/disable UI (behind the overlay title)
   session-timer.js
   retry.js
@@ -241,7 +241,7 @@ scripts/                       bundled scripts, auto-loaded
 examples/
   sample-patch.js              minimal injection example
 theme-diy/bg/                  background images used by Theme DIY
-.opencode/skills/inject-script/SKILL.md   developer reference for injection scripts
+.opencode/skills/inject-script/SKILL.md   developer reference for injection mods
 ```
 
 ## License
