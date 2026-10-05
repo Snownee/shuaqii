@@ -16,8 +16,9 @@
 // element needs pointer-events: auto so the pointer can reach it).
 //
 // Items are keyed by id, so re-injecting a script replaces its line instead of
-// stacking duplicates. Registration order is preserved. A header line showing
-// "shuaqii <version>" is kept above every item; the version comes from
+// stacking duplicates. Lines are ordered by the owning script's optional registry
+// `order`, then by id, so reloading always produces the same order. A header line
+// showing "shuaqii <version>" is kept above every item; the version comes from
 // window.__shuaqii.version, which shuaqii.py injects before each script run.
 //
 // Hot-reload safe: re-injecting this file re-applies PANEL_STYLE/itemStyle() to the
@@ -239,7 +240,10 @@
     }
     if (item.title === undefined) item.title = "";
     item.el.dataset.sqItem = id;
-    if (!item.el.isConnected) ensurePanel().appendChild(item.el);
+    if (!item.el.isConnected) {
+      ensurePanel().appendChild(item.el);
+      reorderPanel();
+    }
     return item;
   }
 
@@ -271,6 +275,29 @@
       if (item.el === tipAnchor) hideTooltip();
       item.el.remove();
       items.delete(id);
+    }
+  }
+
+  // Lines are stacked deterministically: by the owning script's optional registry
+  // `order`, then by id (alphabetical) — not by whichever async render landed first, and
+  // not by registry insertion order (which varies with async startup). Runs whenever a
+  // line is (re)added, so reloading always produces the same order. The version line
+  // stays first.
+  function reorderPanel() {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    const list = window.__sqScripts && window.__sqScripts.list ? window.__sqScripts.list() : [];
+    const rank = new Map();
+    list.forEach((entry) => rank.set(entry.id, entry.order));
+    const key = (id) => (rank.has(id) ? rank.get(id) : Infinity);
+    const sorted = [...items.entries()].sort(
+      (a, b) => key(a[0]) - key(b[0]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0),
+    );
+    let prev = document.getElementById(VERSION_ID);
+    for (const [, item] of sorted) {
+      const next = prev ? prev.nextElementSibling : panel.firstElementChild;
+      if (next !== item.el) panel.insertBefore(item.el, next);
+      prev = item.el;
     }
   }
 
@@ -850,4 +877,5 @@
     styleItem(item);
     if (!item.el.isConnected) ensurePanel().appendChild(item.el);
   }
+  reorderPanel();
 })();

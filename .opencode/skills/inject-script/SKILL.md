@@ -47,7 +47,8 @@ window.__sqOverlay.remove(id);
 ```
 
 - Items are keyed by `id` → re-injecting **replaces** the same line, never duplicates.
-- Lines are stacked bottom-right in registration order.
+- Lines are stacked bottom-right in a deterministic order (registry `order`, then id), so
+  reloads don't shuffle them. Set `order` in your `register()` meta to control placement.
 - Items are `pointer-events: none` by default. Pass `{ interactive: true }` to make a
   line clickable (required for checkboxes/buttons).
 - A non-empty `title` makes the line a hover target and shows a tooltip styled after the
